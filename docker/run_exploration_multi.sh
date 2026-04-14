@@ -8,6 +8,7 @@ ENABLE_RVIZ="${ENABLE_RVIZ:-true}"
 USE_GPU="${USE_GPU:-false}"
 AUTOSTART="${AUTOSTART:-true}"
 MAP_NAME="${MAP_NAME:-${REPO_ROOT}/map_generator/resource/small_forest01cutoff.pcd}"
+MAP_NAME="$(containerize_repo_path "${MAP_NAME}")"
 
 run_in_container "source /opt/ros/noetic/setup.bash && source devel/setup.bash && \
   roslaunch exploration_manager exploration_multi_ground.launch \
