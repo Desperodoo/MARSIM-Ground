@@ -18,6 +18,8 @@
 #include <sensor_msgs/PointCloud2.h>
 #include "std_msgs/Header.h"
 #include <array>
+#include <algorithm>
+#include <cmath>
 
 using namespace arma;
 using namespace std;
@@ -26,6 +28,15 @@ static string mesh_resource;
 static double color_r, color_g, color_b, color_a, cov_scale, scale;
 static string robot_model;
 std::string quad_name;
+bool gait_visualization_enabled = true;
+double gait_speed_threshold = 0.05;
+double gait_cycle_freq = 0.45;
+double gait_cycle_freq_per_mps = 0.18;
+double gait_stride_gain = 0.32;
+double gait_bounce_amplitude = 0.010;
+double gait_pitch_amplitude = 0.045;
+double gait_roll_amplitude = 0.025;
+double gait_hip_amplitude = 0.055;
 
 bool cross_config = false;
 bool tf45 = false;
@@ -74,6 +85,27 @@ struct UnitreeLegConfig {
     string thigh_mesh;
 };
 
+struct UnitreeVisualGait {
+    double speed_ratio;
+    double phase;
+    double body_bounce;
+    double body_pitch;
+    double body_roll;
+    double hip_amplitude;
+    double thigh_amplitude;
+    double calf_amplitude;
+};
+
+double gaitElapsedSec(const ros::Time &stamp) {
+    static bool initialized = false;
+    static ros::Time start_stamp;
+    if (!initialized) {
+        start_stamp = stamp;
+        initialized = true;
+    }
+    return std::max(0.0, (stamp - start_stamp).toSec());
+}
+
 Eigen::Quaterniond yawOnlyQuaternion(const colvec &q) {
     colvec ypr = R_to_ypr(quaternion_to_R(q));
     return Eigen::Quaterniond(Eigen::AngleAxisd(ypr(0), Eigen::Vector3d::UnitZ()));
@@ -108,14 +140,40 @@ void publishMeshMarker(const ros::Time &stamp, int id, const string &resource,
     meshPub.publish(marker);
 }
 
-void publishUnitreeA1(const ros::Time &stamp, const Eigen::Vector3d &position, const Eigen::Quaterniond &yaw_quat) {
-    const double hip_angle = 0.0;
-    const double thigh_angle = 0.82;
-    const double calf_angle = -1.62;
+UnitreeVisualGait computeUnitreeVisualGait(const ros::Time &stamp, const Eigen::Vector3d &velocity) {
+    const double planar_speed = velocity.head<2>().norm();
+    const double raw_ratio = (planar_speed - gait_speed_threshold) / 0.55;
+    const double speed_ratio = gait_visualization_enabled ? std::max(0.0, std::min(1.0, raw_ratio)) : 0.0;
+    const double elapsed = gaitElapsedSec(stamp);
+    const double phase = 2.0 * M_PI * (gait_cycle_freq + gait_cycle_freq_per_mps * planar_speed) * elapsed;
+
+    UnitreeVisualGait gait{};
+    gait.speed_ratio = speed_ratio;
+    gait.phase = phase;
+    gait.body_bounce = gait_bounce_amplitude * speed_ratio * 0.5 * (1.0 + std::sin(phase + M_PI_2));
+    gait.body_pitch = gait_pitch_amplitude * speed_ratio * std::sin(phase);
+    gait.body_roll = gait_roll_amplitude * speed_ratio * std::sin(phase + M_PI_2);
+    gait.hip_amplitude = gait_hip_amplitude * speed_ratio;
+    gait.thigh_amplitude = gait_stride_gain * speed_ratio;
+    gait.calf_amplitude = 0.75 * gait_stride_gain * speed_ratio;
+    return gait;
+}
+
+void publishUnitreeA1(const ros::Time &stamp, const Eigen::Vector3d &position, const Eigen::Quaterniond &yaw_quat,
+                      const Eigen::Vector3d &velocity) {
+    const double neutral_hip_angle = 0.0;
+    const double neutral_thigh_angle = 0.82;
+    const double neutral_calf_angle = -1.62;
     const double spacing_scale = scale;
+    const UnitreeVisualGait gait = computeUnitreeVisualGait(stamp, velocity);
 
     const string base = "package://odom_visualization/meshes/unitree_a1/";
-    publishMeshMarker(stamp, 0, base + "trunk.dae", position, yaw_quat, false);
+    const Eigen::Quaterniond body_tilt =
+            Eigen::AngleAxisd(gait.body_roll, Eigen::Vector3d::UnitX()) *
+            Eigen::AngleAxisd(gait.body_pitch, Eigen::Vector3d::UnitY());
+    const Eigen::Quaterniond trunk_quat = yaw_quat * body_tilt;
+    const Eigen::Vector3d trunk_position = position + Eigen::Vector3d(0.0, 0.0, gait.body_bounce);
+    publishMeshMarker(stamp, 0, base + "trunk.dae", trunk_position, trunk_quat, false);
 
     const std::array<UnitreeLegConfig, 4> legs = {{
             {1, 2, 3, Eigen::Vector3d(0.1805, -0.0470, 0.0), -0.0838, Eigen::Vector3d(M_PI, 0.0, 0.0), base + "thigh_mirror.dae"},
@@ -124,8 +182,20 @@ void publishUnitreeA1(const ros::Time &stamp, const Eigen::Vector3d &position, c
             {10, 11, 12, Eigen::Vector3d(-0.1805, 0.0470, 0.0), 0.0838, Eigen::Vector3d(0.0, M_PI, 0.0), base + "thigh.dae"},
     }};
 
-    const Eigen::Affine3d base_tf = Eigen::Translation3d(position) * yaw_quat;
-    for (const auto &leg: legs) {
+    const std::array<double, 4> phase_offsets = {{0.0, M_PI, M_PI, 0.0}};
+    const Eigen::Affine3d base_tf = Eigen::Translation3d(trunk_position) * trunk_quat;
+    for (size_t leg_idx = 0; leg_idx < legs.size(); ++leg_idx) {
+        const auto &leg = legs[leg_idx];
+        const double leg_phase = gait.phase + phase_offsets[leg_idx];
+        const double swing = std::sin(leg_phase);
+        const double lift = 0.5 * (1.0 - std::cos(leg_phase));
+        const double side_sign = leg.thigh_offset_y > 0.0 ? 1.0 : -1.0;
+        const double hip_angle = neutral_hip_angle + side_sign * gait.hip_amplitude * swing;
+        const double thigh_angle =
+                neutral_thigh_angle + gait.thigh_amplitude * swing - 0.10 * gait.speed_ratio * lift;
+        const double calf_angle =
+                neutral_calf_angle + gait.calf_amplitude * lift - 0.12 * gait.thigh_amplitude * swing;
+
         const Eigen::Affine3d hip_joint_tf =
                 base_tf * Eigen::Translation3d(leg.hip_offset * spacing_scale) *
                 Eigen::AngleAxisd(hip_angle, Eigen::Vector3d::UnitX());
@@ -150,9 +220,10 @@ void publishUnitreeA1(const ros::Time &stamp, const Eigen::Vector3d &position, c
     }
 }
 
-void publishRobotModel(const ros::Time &stamp, const Eigen::Vector3d &position, const colvec &q) {
+void publishRobotModel(const ros::Time &stamp, const Eigen::Vector3d &position, const colvec &q,
+                       const Eigen::Vector3d &velocity) {
     if (robot_model == "unitree_a1") {
-        publishUnitreeA1(stamp, position, yawOnlyQuaternion(q));
+        publishUnitreeA1(stamp, position, yawOnlyQuaternion(q), velocity);
         return;
     }
 
@@ -476,7 +547,10 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr &msg) {
     publishRobotModel(msg->header.stamp,
                       Eigen::Vector3d(msg->pose.pose.position.x, msg->pose.pose.position.y,
                                       msg->pose.pose.position.z),
-                      q);
+                      q,
+                      Eigen::Vector3d(msg->twist.twist.linear.x,
+                                      msg->twist.twist.linear.y,
+                                      msg->twist.twist.linear.z));
 
     // TF for raw sensor visualization
     if (tf45) {
@@ -577,6 +651,15 @@ int main(int argc, char **argv) {
     n.param("covariance_color", cov_color, false);
     n.param("drone_id", drone_id, 0);
     n.param("quadrotor_name", quad_name, std::string("quadrotor"));
+    n.param("gait_visualization_enabled", gait_visualization_enabled, true);
+    n.param("gait_speed_threshold", gait_speed_threshold, 0.05);
+    n.param("gait_cycle_freq", gait_cycle_freq, 0.45);
+    n.param("gait_cycle_freq_per_mps", gait_cycle_freq_per_mps, 0.18);
+    n.param("gait_stride_gain", gait_stride_gain, 0.32);
+    n.param("gait_bounce_amplitude", gait_bounce_amplitude, 0.010);
+    n.param("gait_pitch_amplitude", gait_pitch_amplitude, 0.045);
+    n.param("gait_roll_amplitude", gait_roll_amplitude, 0.025);
+    n.param("gait_hip_amplitude", gait_hip_amplitude, 0.055);
     n.param("pose_topic_sub", sub_quadpose_topic, string(""));
     n.param("relative_pose_topic", relative_pose_topic, string(""));
     n.param("sub_pointcloud_topic", sub_pointcloud_topic, string(""));
