@@ -5,9 +5,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 ENABLE_RVIZ="${ENABLE_RVIZ:-true}"
-USE_GPU="${USE_GPU:-false}"
+USE_GPU="${USE_GPU:-auto}"
 if [ "${ENABLE_RVIZ}" = "true" ]; then
   export DOCKER_RUN_AS_HOST_USER=true
+fi
+if [ "${USE_GPU}" = "auto" ]; then
+  if docker_has_gpu; then
+    USE_GPU=true
+  else
+    USE_GPU=false
+  fi
+fi
+if [ "${USE_GPU}" = "true" ]; then
+  export DOCKER_ENABLE_GPU=true
 fi
 MAP_NAME="${MAP_NAME:-${REPO_ROOT}/map_generator/resource/small_forest01cutoff.pcd}"
 MAP_NAME="$(containerize_repo_path "${MAP_NAME}")"

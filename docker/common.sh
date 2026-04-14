@@ -8,6 +8,7 @@ IMAGE_NAME="${IMAGE_NAME:-marsim-fuel:noetic}"
 CONTAINER_WS_ROOT="${CONTAINER_WS_ROOT:-/root/marsim_ws}"
 CONTAINER_REPO_ROOT="${CONTAINER_REPO_ROOT:-${CONTAINER_WS_ROOT}/src/MARSIM_fuel}"
 DOCKER_RUN_AS_HOST_USER="${DOCKER_RUN_AS_HOST_USER:-false}"
+DOCKER_ENABLE_GPU="${DOCKER_ENABLE_GPU:-false}"
 HOST_UID="${HOST_UID:-$(id -u)}"
 HOST_GID="${HOST_GID:-$(id -g)}"
 HTTP_PROXY="${HTTP_PROXY:-http://172.18.196.129:7890}"
@@ -70,6 +71,26 @@ docker_user_args() {
   fi
 }
 
+docker_gpu_args() {
+  if [ "${DOCKER_ENABLE_GPU}" = "true" ]; then
+    printf '%s\n' \
+      "--gpus" "all" \
+      "-e" "NVIDIA_VISIBLE_DEVICES=all" \
+      "-e" "NVIDIA_DRIVER_CAPABILITIES=all"
+  fi
+}
+
+docker_has_gpu() {
+  local docker_bin
+  docker_bin="$(docker_cmd)"
+  if ! ${docker_bin} info --format '{{json .Runtimes}}' 2>/dev/null | grep -q '"nvidia"'; then
+    return 1
+  fi
+  if ! ${docker_bin} run --rm --gpus all "${IMAGE_NAME}" bash -lc 'nvidia-smi >/dev/null 2>&1' >/dev/null 2>&1; then
+    return 1
+  fi
+}
+
 containerize_repo_path() {
   local path="$1"
   if [[ "${path}" == "${REPO_ROOT}"* ]]; then
@@ -97,6 +118,9 @@ run_in_container() {
   while IFS= read -r line; do
     [ -n "${line}" ] && args+=("${line}")
   done < <(docker_user_args)
+  while IFS= read -r line; do
+    [ -n "${line}" ] && args+=("${line}")
+  done < <(docker_gpu_args)
 
   if [ "${DOCKER_RUN_AS_HOST_USER}" = "true" ]; then
     args+=("-e" "CONTAINER_COMMAND=${command}")
