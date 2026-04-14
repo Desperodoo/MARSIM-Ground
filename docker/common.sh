@@ -5,7 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WS_ROOT="${WS_ROOT:-${REPO_ROOT}/.docker_ws}"
 IMAGE_NAME="${IMAGE_NAME:-marsim-fuel:noetic}"
-CONTAINER_REPO_ROOT="${CONTAINER_REPO_ROOT:-/root/marsim_ws/src/MARSIM_fuel}"
+CONTAINER_WS_ROOT="${CONTAINER_WS_ROOT:-/root/marsim_ws}"
+CONTAINER_REPO_ROOT="${CONTAINER_REPO_ROOT:-${CONTAINER_WS_ROOT}/src/MARSIM_fuel}"
+DOCKER_RUN_AS_HOST_USER="${DOCKER_RUN_AS_HOST_USER:-false}"
+HOST_UID="${HOST_UID:-$(id -u)}"
+HOST_GID="${HOST_GID:-$(id -g)}"
 HTTP_PROXY="${HTTP_PROXY:-http://172.18.196.129:7890}"
 HTTPS_PROXY="${HTTPS_PROXY:-${HTTP_PROXY}}"
 ALL_PROXY="${ALL_PROXY:-${HTTP_PROXY}}"
@@ -55,6 +59,17 @@ docker_tty_args() {
   fi
 }
 
+docker_user_args() {
+  if [ "${DOCKER_RUN_AS_HOST_USER}" = "true" ]; then
+    printf '%s\n' \
+      "-e" "HOST_UID=${HOST_UID}" \
+      "-e" "HOST_GID=${HOST_GID}" \
+      "-e" "HOME=/tmp/marsim_home" \
+      "-e" "XDG_RUNTIME_DIR=/tmp/marsim_runtime" \
+      "-e" "QT_X11_NO_MITSHM=1"
+  fi
+}
+
 containerize_repo_path() {
   local path="$1"
   if [[ "${path}" == "${REPO_ROOT}"* ]]; then
@@ -69,6 +84,7 @@ run_in_container() {
   local docker_bin
   docker_bin="$(docker_cmd)"
   local -a args
+  local command="$*"
   while IFS= read -r line; do
     [ -n "${line}" ] && args+=("${line}")
   done < <(docker_proxy_args)
@@ -78,13 +94,22 @@ run_in_container() {
   while IFS= read -r line; do
     [ -n "${line}" ] && args+=("${line}")
   done < <(docker_tty_args)
+  while IFS= read -r line; do
+    [ -n "${line}" ] && args+=("${line}")
+  done < <(docker_user_args)
+
+  if [ "${DOCKER_RUN_AS_HOST_USER}" = "true" ]; then
+    args+=("-e" "CONTAINER_COMMAND=${command}")
+    # RViz aborts under root on some desktops, so keep the catkin workspace
+    # path stable but drop privileges before launching the actual command.
+    command="chmod 755 /root && mkdir -p /tmp/marsim_home /tmp/marsim_runtime && chown \${HOST_UID}:\${HOST_GID} /tmp/marsim_home /tmp/marsim_runtime && chmod 700 /tmp/marsim_runtime && setpriv --reuid=\${HOST_UID} --regid=\${HOST_GID} --clear-groups env HOME=/tmp/marsim_home XDG_RUNTIME_DIR=/tmp/marsim_runtime QT_X11_NO_MITSHM=1 bash -lc \"\${CONTAINER_COMMAND}\""
+  fi
 
   ${docker_bin} run --rm \
     --net=host \
     "${args[@]}" \
-    -v "${WS_ROOT}:/root/marsim_ws" \
+    -v "${WS_ROOT}:${CONTAINER_WS_ROOT}" \
     -v "${REPO_ROOT}:${CONTAINER_REPO_ROOT}" \
-    -w /root/marsim_ws \
     "${IMAGE_NAME}" \
-    bash -lc "$*"
+    bash -lc "${command}"
 }
