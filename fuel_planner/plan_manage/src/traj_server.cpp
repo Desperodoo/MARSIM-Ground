@@ -13,7 +13,6 @@ namespace backward {
 backward::SignalHandling sh;
 }
 using fast_planner::NonUniformBspline;
-using fast_planner::Polynomial;
 using fast_planner::PolynomialTraj;
 using fast_planner::PerceptionUtils;
 
@@ -45,6 +44,18 @@ double energy;
 Eigen::Matrix3d R_loop;
 Eigen::Vector3d T_loop;
 bool isLoopCorrection = false;
+bool ground_motion_enabled = false;
+double fixed_ground_z = 0.3;
+bool align_yaw_to_velocity = false;
+double yaw_align_min_speed = 0.15;
+double max_ground_yaw_rate = 20.0 * M_PI / 180.0;
+double last_cmd_yaw = 0.0;
+
+double wrapAngle(double angle) {
+  while (angle > M_PI) angle -= 2.0 * M_PI;
+  while (angle < -M_PI) angle += 2.0 * M_PI;
+  return angle;
+}
 
 double calcPathLength(const vector<Eigen::Vector3d>& path) {
   if (path.empty()) return 0;
@@ -299,6 +310,39 @@ void cmdCallback(const ros::TimerEvent& e) {
     yaw = atan2(yaw_dir[1], yaw_dir[0]);
   }
 
+  if (ground_motion_enabled) {
+    pos(2) = fixed_ground_z;
+    vel(2) = 0.0;
+    acc(2) = 0.0;
+    jer(2) = 0.0;
+
+    if (align_yaw_to_velocity) {
+      double desired_yaw = yaw;
+      const double planar_speed = vel.head<2>().norm();
+      if (planar_speed > yaw_align_min_speed) {
+        desired_yaw = atan2(vel(1), vel(0));
+      } else if (!odom.header.stamp.isZero()) {
+        desired_yaw = atan2(
+            2.0 * (odom.pose.pose.orientation.w * odom.pose.pose.orientation.z +
+                   odom.pose.pose.orientation.x * odom.pose.pose.orientation.y),
+            1.0 - 2.0 * (odom.pose.pose.orientation.y * odom.pose.pose.orientation.y +
+                         odom.pose.pose.orientation.z * odom.pose.pose.orientation.z));
+      } else {
+        desired_yaw = last_cmd_yaw;
+      }
+
+      const double max_delta_yaw = max_ground_yaw_rate * 0.01;
+      const double yaw_error = wrapAngle(desired_yaw - last_cmd_yaw);
+      const double limited_yaw_error =
+          std::max(-max_delta_yaw, std::min(max_delta_yaw, yaw_error));
+      yaw = last_cmd_yaw + limited_yaw_error;
+    }
+  }
+
+  yaw = wrapAngle(yaw);
+  yawdot = wrapAngle(yaw - last_cmd_yaw) / 0.01;
+  last_cmd_yaw = yaw;
+
   cmd.header.stamp = time_now;
   cmd.trajectory_id = traj_id_;
   cmd.position.x = pos(0);
@@ -454,11 +498,17 @@ int main(int argc, char** argv) {
   nh.param("traj_server/pub_traj_id", pub_traj_id_, -1);
   nh.param("fsm/replan_time", replan_time_, 0.1);
   nh.param("loop_correction/isLoopCorrection", isLoopCorrection, false);
+  nh.param("ground_motion/enabled", ground_motion_enabled, false);
+  nh.param("ground_motion/fixed_z", fixed_ground_z, 0.3);
+  nh.param("ground_motion/align_yaw_to_velocity", align_yaw_to_velocity, false);
+  nh.param("ground_motion/yaw_align_min_speed", yaw_align_min_speed, 0.15);
+  nh.param("ground_motion/max_yaw_rate", max_ground_yaw_rate, 20.0 * M_PI / 180.0);
 
   Eigen::Vector3d init_pos;
   nh.param("traj_server/init_x", init_pos[0], 0.0);
   nh.param("traj_server/init_y", init_pos[1], 0.0);
   nh.param("traj_server/init_z", init_pos[2], 0.0);
+  if (ground_motion_enabled) init_pos[2] = fixed_ground_z;
 
   ROS_WARN("[Traj server]: init...");
   ros::Duration(1.0).sleep();
@@ -485,20 +535,23 @@ int main(int argc, char** argv) {
   cmd.acceleration.z = 0.0;
   cmd.yaw = 0.0;
   cmd.yaw_dot = 0.0;
+  last_cmd_yaw = cmd.yaw;
 
   percep_utils_.reset(new PerceptionUtils(nh));
 
   // test();
-  // Initialization for exploration, move upward and downward
-  for (int i = 0; i < 100; ++i) {
-    cmd.position.z += 0.01;
-    pos_cmd_pub.publish(cmd);
-    ros::Duration(0.01).sleep();
-  }
-  for (int i = 0; i < 100; ++i) {
-    cmd.position.z -= 0.01;
-    pos_cmd_pub.publish(cmd);
-    ros::Duration(0.01).sleep();
+  // Initialization for exploration, keep the original takeoff wiggle for aerial mode only.
+  if (!ground_motion_enabled) {
+    for (int i = 0; i < 100; ++i) {
+      cmd.position.z += 0.01;
+      pos_cmd_pub.publish(cmd);
+      ros::Duration(0.01).sleep();
+    }
+    for (int i = 0; i < 100; ++i) {
+      cmd.position.z -= 0.01;
+      pos_cmd_pub.publish(cmd);
+      ros::Duration(0.01).sleep();
+    }
   }
   // ros::Duration(1.0).sleep();
   // for (int i = 0; i < 100; ++i)

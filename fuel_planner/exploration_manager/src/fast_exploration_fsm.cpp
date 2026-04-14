@@ -325,6 +325,10 @@ void FastExplorationFSM::frontierCallback(const ros::TimerEvent& e) {
 }
 
 void FastExplorationFSM::triggerCallback(const nav_msgs::PathConstPtr& msg) {
+  if (!msg || msg->poses.empty()) {
+    ROS_WARN("Ignore empty waypoint trigger.");
+    return;
+  }
   if (msg->poses[0].pose.position.z < -0.1) return;
   if (state_ != WAIT_TRIGGER) return;
   fd_->trigger_ = true;

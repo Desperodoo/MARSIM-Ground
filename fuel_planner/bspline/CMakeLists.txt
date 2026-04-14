@@ -2,20 +2,21 @@ cmake_minimum_required(VERSION 2.8.3)
 project(bspline)
 
 set(CMAKE_BUILD_TYPE "Release")
-set(CMAKE_CXX_FLAGS "-std=c++14")
+set(CMAKE_CXX_FLAGS "-std=c++17")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall")
 
 find_package(Eigen3 REQUIRED)
 find_package(PCL 1.7 REQUIRED)
 
 find_package(catkin REQUIRED COMPONENTS
+  geometry_msgs
+  message_generation
   roscpp
   rospy
   std_msgs
   visualization_msgs
   plan_env
   cv_bridge
-  message_generation
 )
 
 # Generate messages in the 'msg' folder
@@ -35,7 +36,7 @@ generate_messages(
 catkin_package(
  INCLUDE_DIRS include
  LIBRARIES bspline
- CATKIN_DEPENDS message_runtime
+ CATKIN_DEPENDS geometry_msgs message_runtime std_msgs
 #  DEPENDS system_lib
 )
 

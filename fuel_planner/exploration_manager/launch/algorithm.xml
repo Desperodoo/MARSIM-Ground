@@ -29,6 +29,10 @@
     <remap from ="/map_ros/pose"   to = "$(arg sensor_pose_topic)"/> 
     <remap from ="/map_ros/depth" to = "$(arg depth_topic)"/>
     <remap from ="/map_ros/cloud" to="$(arg cloud_topic)"/>
+    <remap from="/waypoint_generator/waypoints" to="waypoint_generator/waypoints"/>
+    <remap from="/planning/replan" to="planning/replan"/>
+    <remap from="/planning/new" to="planning/new"/>
+    <remap from="/planning/bspline" to="planning/bspline"/>
 
     <param name="sdf_map/resolution"      value="0.1" /> 
     <param name="sdf_map/map_size_x"   value="$(arg map_size_x_)" /> 
@@ -76,14 +80,14 @@
     <param name="map_ros/frame_id"      value="world"/>
 
     <!-- Fsm -->
-    <param name="fsm/thresh_replan1" value="0.5" type="double"/>
-    <param name="fsm/thresh_replan2" value="0.5" type="double"/>
-    <param name="fsm/thresh_replan3" value="1.5" type="double"/>
+    <param name="fsm/thresh_replan1" value="1.0" type="double"/>
+    <param name="fsm/thresh_replan2" value="1.0" type="double"/>
+    <param name="fsm/thresh_replan3" value="3.0" type="double"/>
 
     <!-- <param name="fsm/thresh_replan1" value="0.00001" type="double"/> -->
     <!-- <param name="fsm/thresh_replan2" value="100.0" type="double"/> -->
     <!-- <param name="fsm/thresh_replan3" value="0.1" type="double"/> -->
-    <param name="fsm/replan_time" value="0.200" type="double"/>
+    <param name="fsm/replan_time" value="0.400" type="double"/>
 
     <!-- Exploration manager -->
 
@@ -98,7 +102,7 @@
     <param name="exploration/ydd" value="$(eval 90 * 3.1415926 / 180.0)" type="double"/>
     <param name="exploration/w_dir" value="1.5" type="double"/>
     <param name="exploration/tsp_dir" value="$(find lkh_tsp_solver)/resource" type="string"/>
-    <param name="exploration/relax_time" value="1.0" type="double"/>
+    <param name="exploration/relax_time" value="1.5" type="double"/>
 
     <param name="frontier/cluster_min" value="100" type="int"/>
     <param name="frontier/cluster_size_xy" value="2.0" type="double"/>
@@ -128,6 +132,8 @@
     <param name="heading_planner/max_yaw_rate" value="$(eval 10 * 3.1415926 / 180.0)" type="double"/>
     <param name="heading_planner/w" value="20000.0" type="double"/>
     <param name="heading_planner/weight_type" value="1" type="double"/>
+    <param name="ground_motion/enabled" value="true" type="bool"/>
+    <param name="ground_motion/fixed_z" value="0.30" type="double"/>
 
   <!-- planner manager -->
     <!-- <param name="manager/max_vel" value="$(arg max_vel)" type="double"/> -->

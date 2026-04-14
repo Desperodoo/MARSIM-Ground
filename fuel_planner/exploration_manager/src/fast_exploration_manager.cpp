@@ -3,6 +3,7 @@
 #include <thread>
 #include <iostream>
 #include <fstream>
+#include <algorithm>
 #include <lkh_tsp_solver/lkh_interface.h>
 #include <active_perception/graph_node.h>
 #include <active_perception/graph_search.h>
@@ -51,12 +52,21 @@ void FastExplorationManager::initialize(ros::NodeHandle& nh) {
   nh.param("exploration/max_decay", ep_->max_decay_, -1.0);
   nh.param("exploration/tsp_dir", ep_->tsp_dir_, string("null"));
   nh.param("exploration/relax_time", ep_->relax_time_, 1.0);
+  ep_->tsp_file_prefix_ = ros::this_node::getNamespace();
+  std::replace(ep_->tsp_file_prefix_.begin(), ep_->tsp_file_prefix_.end(), '/', '_');
+  if (ep_->tsp_file_prefix_.empty() || ep_->tsp_file_prefix_ == "_") {
+    ep_->tsp_file_prefix_ = ros::this_node::getName();
+    std::replace(ep_->tsp_file_prefix_.begin(), ep_->tsp_file_prefix_.end(), '/', '_');
+  }
+  ep_->tsp_file_prefix_ += "_single";
 
   nh.param("exploration/vm", ViewNode::vm_, -1.0);
   nh.param("exploration/am", ViewNode::am_, -1.0);
   nh.param("exploration/yd", ViewNode::yd_, -1.0);
   nh.param("exploration/ydd", ViewNode::ydd_, -1.0);
   nh.param("exploration/w_dir", ViewNode::w_dir_, -1.0);
+  nh.param("ground_motion/enabled", ground_motion_enabled_, false);
+  nh.param("ground_motion/fixed_z", fixed_ground_z_, 0.3);
 
   ViewNode::astar_.reset(new Astar);
   ViewNode::astar_->init(nh, edt_environment_);
@@ -73,10 +83,11 @@ void FastExplorationManager::initialize(ros::NodeHandle& nh) {
   planner_manager_->path_finder_->max_search_time_ = 1.0;
 
   // Initialize TSP par file
-  ofstream par_file(ep_->tsp_dir_ + "/single.par");
-  par_file << "PROBLEM_FILE = " << ep_->tsp_dir_ << "/single.tsp\n";
+  const string tsp_base = ep_->tsp_dir_ + "/" + ep_->tsp_file_prefix_;
+  ofstream par_file(tsp_base + ".par");
+  par_file << "PROBLEM_FILE = " << tsp_base << ".tsp\n";
   par_file << "GAIN23 = NO\n";
-  par_file << "OUTPUT_TOUR_FILE =" << ep_->tsp_dir_ << "/single.txt\n";
+  par_file << "OUTPUT_TOUR_FILE = " << tsp_base << ".txt\n";
   par_file << "RUNS = 1\n";
 
   // Analysis
@@ -92,7 +103,9 @@ int FastExplorationManager::planExploreMotion(
   ed_->views_.clear();
   ed_->global_tour_.clear();
 
-  std::cout << "start pos: " << pos.transpose() << ", vel: " << vel.transpose()
+  const Vector3d start_pos = clampToGround(pos);
+
+  std::cout << "start pos: " << start_pos.transpose() << ", vel: " << vel.transpose()
             << ", acc: " << acc.transpose() << std::endl;
 
   // Search frontiers and group them into clusters
@@ -111,7 +124,9 @@ int FastExplorationManager::planExploreMotion(
     ROS_WARN("No coverable frontier.");
     return NO_FRONTIER;
   }
-  frontier_finder_->getTopViewpointsInfo(pos, ed_->points_, ed_->yaws_, ed_->averages_);
+  frontier_finder_->getTopViewpointsInfo(start_pos, ed_->points_, ed_->yaws_, ed_->averages_);
+  clampPathToGround(ed_->points_);
+  clampPathToGround(ed_->averages_);
   for (int i = 0; i < ed_->points_.size(); ++i)
     ed_->views_.push_back(
         ed_->points_[i] + 2.0 * Vector3d(cos(ed_->yaws_[i]), sin(ed_->yaws_[i]), 0));
@@ -124,12 +139,18 @@ int FastExplorationManager::planExploreMotion(
   // Do global and local tour planning and retrieve the next viewpoint
   Vector3d next_pos;
   double next_yaw;
+  vector<pair<Vector3d, double>> fallback_candidates;
   if (ed_->points_.size() > 1) {
     // Find the global tour passing through all viewpoints
     // Create TSP and solve by LKH
     // Optimal tour is returned as indices of frontier
     vector<int> indices;
-    findGlobalTour(pos, vel, yaw, indices);
+    findGlobalTour(start_pos, vel, yaw, indices);
+    for (const int idx : indices) {
+      if (idx >= 0 && idx < ed_->points_.size() && idx < ed_->yaws_.size()) {
+        fallback_candidates.emplace_back(ed_->points_[idx], ed_->yaws_[idx]);
+      }
+    }
 
     if (ep_->refine_local_) {
       // Do refinement for the next few viewpoints in the global tour
@@ -143,21 +164,30 @@ int FastExplorationManager::planExploreMotion(
         auto tmp = ed_->points_[indices[i]];
         ed_->unrefined_points_.push_back(tmp);
         ed_->refined_ids_.push_back(indices[i]);
-        if ((tmp - pos).norm() > ep_->refined_radius_ && ed_->refined_ids_.size() >= 2) break;
+        if ((tmp - start_pos).norm() > ep_->refined_radius_ && ed_->refined_ids_.size() >= 2) break;
       }
 
       // Get top N viewpoints for the next K frontiers
       ed_->n_points_.clear();
       vector<vector<double>> n_yaws;
       frontier_finder_->getViewpointsInfo(
-          pos, ed_->refined_ids_, ep_->top_view_num_, ep_->max_decay_, ed_->n_points_, n_yaws);
+          start_pos, ed_->refined_ids_, ep_->top_view_num_, ep_->max_decay_, ed_->n_points_, n_yaws);
+      clampNestedPathToGround(ed_->n_points_);
 
       ed_->refined_points_.clear();
       ed_->refined_views_.clear();
       vector<double> refined_yaws;
-      refineLocalTour(pos, vel, yaw, ed_->n_points_, n_yaws, ed_->refined_points_, refined_yaws);
+      refineLocalTour(
+          start_pos, vel, yaw, ed_->n_points_, n_yaws, ed_->refined_points_, refined_yaws);
+      if (ed_->refined_points_.empty() || refined_yaws.empty()) {
+        ROS_WARN("Refined local tour is empty, fallback to the first global viewpoint.");
+        if (indices.empty()) return FAIL;
+        next_pos = ed_->points_[indices[0]];
+        next_yaw = ed_->yaws_[indices[0]];
+      } else {
       next_pos = ed_->refined_points_[0];
       next_yaw = refined_yaws[0];
+      }
 
       // Get marker for view visualization
       for (int i = 0; i < ed_->refined_points_.size(); ++i) {
@@ -184,7 +214,7 @@ int FastExplorationManager::planExploreMotion(
     }
   } else if (ed_->points_.size() == 1) {
     // Only 1 destination, no need to find global tour through TSP
-    ed_->global_tour_ = { pos, ed_->points_[0] };
+    ed_->global_tour_ = { start_pos, ed_->points_[0] };
     ed_->refined_tour_.clear();
     ed_->refined_views1_.clear();
     ed_->refined_views2_.clear();
@@ -196,14 +226,22 @@ int FastExplorationManager::planExploreMotion(
       ed_->n_points_.clear();
       vector<vector<double>> n_yaws;
       frontier_finder_->getViewpointsInfo(
-          pos, { 0 }, ep_->top_view_num_, ep_->max_decay_, ed_->n_points_, n_yaws);
+          start_pos, { 0 }, ep_->top_view_num_, ep_->max_decay_, ed_->n_points_, n_yaws);
+      clampNestedPathToGround(ed_->n_points_);
+      if (ed_->n_points_.empty() || n_yaws.empty() || ed_->n_points_[0].empty() || n_yaws[0].empty()) {
+        ROS_WARN("No refined viewpoints for the only frontier, fallback to the frontier center.");
+        next_pos = ed_->points_[0];
+        next_yaw = ed_->yaws_[0];
+        ed_->refined_points_ = { next_pos };
+        ed_->refined_views_ = { next_pos + 2.0 * Vector3d(cos(next_yaw), sin(next_yaw), 0) };
+      } else {
 
       double min_cost = 100000;
       int min_cost_id = -1;
       vector<Vector3d> tmp_path;
       for (int i = 0; i < ed_->n_points_[0].size(); ++i) {
         auto tmp_cost = ViewNode::computeCost(
-            pos, ed_->n_points_[0][i], yaw[0], n_yaws[0][i], vel, yaw[1], tmp_path);
+            start_pos, ed_->n_points_[0][i], yaw[0], n_yaws[0][i], vel, yaw[1], tmp_path);
         if (tmp_cost < min_cost) {
           min_cost = tmp_cost;
           min_cost_id = i;
@@ -213,6 +251,7 @@ int FastExplorationManager::planExploreMotion(
       next_yaw = n_yaws[0][min_cost_id];
       ed_->refined_points_ = { next_pos };
       ed_->refined_views_ = { next_pos + 2.0 * Vector3d(cos(next_yaw), sin(next_yaw), 0) };
+      }
     } else {
       next_pos = ed_->points_[0];
       next_yaw = ed_->yaws_[0];
@@ -220,6 +259,7 @@ int FastExplorationManager::planExploreMotion(
   } else
     ROS_ERROR("Empty destination.");
 
+  next_pos = clampToGround(next_pos);
   std::cout << "Next view: " << next_pos.transpose() << ", " << next_yaw << std::endl;
 
   // Plan trajectory (position and yaw) to the next viewpoint
@@ -231,12 +271,57 @@ int FastExplorationManager::planExploreMotion(
 
   // Generate trajectory of x,y,z
   planner_manager_->path_finder_->reset();
-  if (planner_manager_->path_finder_->search(pos, next_pos) != Astar::REACH_END) {
-    ROS_ERROR("No path to next viewpoint");
-    return FAIL;
+  if (planner_manager_->path_finder_->search(start_pos, next_pos) != Astar::REACH_END) {
+    bool recovered = false;
+    for (const auto& candidate : fallback_candidates) {
+      Vector3d candidate_pos = clampToGround(candidate.first);
+      if ((candidate_pos - next_pos).norm() < 1e-3) {
+        continue;
+      }
+
+      planner_manager_->path_finder_->reset();
+      if (planner_manager_->path_finder_->search(start_pos, candidate_pos) == Astar::REACH_END) {
+        next_pos = candidate_pos;
+        next_yaw = candidate.second;
+        recovered = true;
+        ROS_WARN_STREAM("Fallback to reachable viewpoint: " << next_pos.transpose()
+                        << ", yaw=" << next_yaw);
+        break;
+      }
+    }
+
+    if (!recovered && ed_->global_tour_.size() > 1) {
+      vector<Vector3d> geometric_fallback = { clampToGround(ed_->global_tour_.front()) };
+      double accum_len = 0.0;
+      for (int i = 1; i < ed_->global_tour_.size(); ++i) {
+        Vector3d pt = clampToGround(ed_->global_tour_[i]);
+        accum_len += (pt - geometric_fallback.back()).norm();
+        geometric_fallback.push_back(pt);
+        if (accum_len >= 3.0) {
+          break;
+        }
+      }
+      if (geometric_fallback.size() >= 2) {
+        ed_->path_next_goal_ = geometric_fallback;
+        shortenPath(ed_->path_next_goal_);
+        next_pos = ed_->path_next_goal_.back();
+        next_yaw = atan2(next_pos.y() - start_pos.y(), next_pos.x() - start_pos.x());
+        recovered = true;
+        ROS_WARN_STREAM("Fallback to global-tour segment: " << next_pos.transpose()
+                        << ", yaw=" << next_yaw);
+      }
+    }
+
+    if (!recovered) {
+      ROS_ERROR("No path to next viewpoint");
+      return FAIL;
+    }
   }
-  ed_->path_next_goal_ = planner_manager_->path_finder_->getPath();
-  shortenPath(ed_->path_next_goal_);
+  if (ed_->path_next_goal_.empty()) {
+    ed_->path_next_goal_ = planner_manager_->path_finder_->getPath();
+    clampPathToGround(ed_->path_next_goal_);
+    shortenPath(ed_->path_next_goal_);
+  }
 
   const double radius_far = 5.0;
   const double radius_close = 1.5;
@@ -286,7 +371,7 @@ int FastExplorationManager::planExploreMotion(
   ROS_WARN("Traj: %lf, yaw: %lf", traj_plan_time, yaw_time);
   double total = (ros::Time::now() - t2).toSec();
   ROS_WARN("Total time: %lf", total);
-  ROS_ERROR_COND(total > 0.1, "Total time too long!!!");
+  ROS_WARN_COND(total > 0.25, "Total time too long!!!");
 
   return SUCCEED;
 }
@@ -320,6 +405,7 @@ void FastExplorationManager::shortenPath(vector<Vector3d>& path) {
   // Ensure at least three points in the path
   if (short_tour.size() == 2)
     short_tour.insert(short_tour.begin() + 1, 0.5 * (short_tour[0] + short_tour[1]));
+  clampPathToGround(short_tour);
   path = short_tour;
 }
 
@@ -331,14 +417,15 @@ void FastExplorationManager::findGlobalTour(
   // Get cost matrix for current state and clusters
   Eigen::MatrixXd cost_mat;
   frontier_finder_->updateFrontierCostMatrix();
-  frontier_finder_->getFullCostMatrix(cur_pos, cur_vel, cur_yaw, cost_mat);
+  frontier_finder_->getFullCostMatrix(clampToGround(cur_pos), cur_vel, cur_yaw, cost_mat);
   const int dimension = cost_mat.rows();
 
   double mat_time = (ros::Time::now() - t1).toSec();
   t1 = ros::Time::now();
 
   // Write params and cost matrix to problem file
-  ofstream prob_file(ep_->tsp_dir_ + "/single.tsp");
+  const string tsp_base = ep_->tsp_dir_ + "/" + ep_->tsp_file_prefix_;
+  ofstream prob_file(tsp_base + ".tsp");
   // Problem specification part, follow the format of TSPLIB
 
   string prob_spec = "NAME : single\nTYPE : ATSP\nDIMENSION : " + to_string(dimension) +
@@ -379,10 +466,10 @@ void FastExplorationManager::findGlobalTour(
   prob_file.close();
 
   // Call LKH TSP solver
-  solveTSPLKH((ep_->tsp_dir_ + "/single.par").c_str());
+  solveTSPLKH((tsp_base + ".par").c_str());
 
   // Read optimal tour from the tour section of result file
-  ifstream res_file(ep_->tsp_dir_ + "/single.txt");
+  ifstream res_file(tsp_base + ".txt");
   string res;
   while (getline(res_file, res)) {
     // Go to tour section
@@ -419,7 +506,8 @@ void FastExplorationManager::findGlobalTour(
   res_file.close();
 
   // Get the path of optimal tour from path matrix
-  frontier_finder_->getPathForTour(cur_pos, indices, ed_->global_tour_);
+  frontier_finder_->getPathForTour(clampToGround(cur_pos), indices, ed_->global_tour_);
+  clampPathToGround(ed_->global_tour_);
 
   double tsp_time = (ros::Time::now() - t1).toSec();
   ROS_WARN("Cost mat: %lf, TSP: %lf", mat_time, tsp_time);
@@ -437,7 +525,8 @@ void FastExplorationManager::refineLocalTour(
   vector<ViewNode::Ptr> last_group, cur_group;
 
   // Add the current state
-  ViewNode::Ptr first(new ViewNode(cur_pos, cur_yaw[0]));
+  const Vector3d start_pos = clampToGround(cur_pos);
+  ViewNode::Ptr first(new ViewNode(start_pos, cur_yaw[0]));
   first->vel_ = cur_vel;
   g_search.addNode(first);
   last_group.push_back(first);
@@ -447,6 +536,10 @@ void FastExplorationManager::refineLocalTour(
   std::cout << "Local tour graph: ";
   for (int i = 0; i < n_points.size(); ++i) {
     // Create nodes for viewpoints of one frontier
+    if (n_points[i].empty() || i >= n_yaws.size() || n_yaws[i].empty()) {
+      ROS_WARN("Skip empty local-viewpoint group %d during refineLocalTour.", i);
+      continue;
+    }
     for (int j = 0; j < n_points[i].size(); ++j) {
       ViewNode::Ptr node(new ViewNode(n_points[i][j], n_yaws[i][j]));
       g_search.addNode(node);
@@ -467,12 +560,20 @@ void FastExplorationManager::refineLocalTour(
     cur_group.clear();
   }
   std::cout << "" << std::endl;
+  if (last_group.empty() || final_node == nullptr) {
+    ROS_WARN("Failed to build a valid local-tour graph.");
+    return;
+  }
   create_time = (ros::Time::now() - t1).toSec();
   t1 = ros::Time::now();
 
   // Search optimal sequence
   vector<ViewNode::Ptr> path;
   g_search.DijkstraSearch(first->id_, final_node->id_, path);
+  if (path.size() <= 1) {
+    ROS_WARN("Local-tour graph search returned an empty path.");
+    return;
+  }
 
   search_time = (ros::Time::now() - t1).toSec();
   t1 = ros::Time::now();
@@ -485,7 +586,7 @@ void FastExplorationManager::refineLocalTour(
 
   // Extract optimal local tour (for visualization)
   ed_->refined_tour_.clear();
-  ed_->refined_tour_.push_back(cur_pos);
+  ed_->refined_tour_.push_back(start_pos);
   ViewNode::astar_->lambda_heu_ = 1.0;
   ViewNode::astar_->setResolution(0.2);
   for (auto pt : refined_pts) {
@@ -495,10 +596,32 @@ void FastExplorationManager::refineLocalTour(
     else
       ed_->refined_tour_.push_back(pt);
   }
+  clampPathToGround(refined_pts);
+  clampPathToGround(ed_->refined_tour_);
   ViewNode::astar_->lambda_heu_ = 10000;
 
   parse_time = (ros::Time::now() - t1).toSec();
   // ROS_WARN("create: %lf, search: %lf, parse: %lf", create_time, search_time, parse_time);
+}
+
+Vector3d FastExplorationManager::clampToGround(const Vector3d& pt) const {
+  if (!ground_motion_enabled_) return pt;
+
+  Vector3d grounded = pt;
+  grounded[2] = fixed_ground_z_;
+  return grounded;
+}
+
+void FastExplorationManager::clampPathToGround(vector<Vector3d>& path) const {
+  if (!ground_motion_enabled_) return;
+
+  for (auto& pt : path) pt = clampToGround(pt);
+}
+
+void FastExplorationManager::clampNestedPathToGround(vector<vector<Vector3d>>& paths) const {
+  if (!ground_motion_enabled_) return;
+
+  for (auto& path : paths) clampPathToGround(path);
 }
 
 }  // namespace fast_planner

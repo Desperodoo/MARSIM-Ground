@@ -6,7 +6,7 @@
 
   <arg name="init_x" value="0"/>
   <arg name="init_y" value="0"/>
-  <arg name="init_z" value="1.0"/> 
+  <arg name="init_z" value="0.30"/> 
 
   <!-- topic of your odometry such as VIO or LIO -->
   <arg name="odom_topic" value="/quad_0/lidar_slam/odom" />
@@ -55,6 +55,8 @@
     <param name="traj_server/init_x" value="$(arg init_x)" type="double"/>
     <param name="traj_server/init_y" value="$(arg init_y)" type="double"/>
     <param name="traj_server/init_z" value="$(arg init_z)" type="double"/>
+    <param name="ground_motion/enabled" value="true" type="bool"/>
+    <param name="ground_motion/fixed_z" value="$(arg init_z)" type="double"/>
 
     <param name="perception_utils/top_angle" value="0.56125" type="double"/>
     <param name="perception_utils/left_angle" value="0.69222" type="double"/>

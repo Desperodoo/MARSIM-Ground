@@ -17,12 +17,14 @@
 #include <message_filters/sync_policies/exact_time.h>
 #include <sensor_msgs/PointCloud2.h>
 #include "std_msgs/Header.h"
+#include <array>
 
 using namespace arma;
 using namespace std;
 
 static string mesh_resource;
 static double color_r, color_g, color_b, color_a, cov_scale, scale;
+static string robot_model;
 std::string quad_name;
 
 bool cross_config = false;
@@ -61,6 +63,102 @@ string sub_pointcloud_topic;
 ros::Publisher pub_relative_pose;
 ros::Publisher pub_sync_lidar;
 double init_x, init_y, init_z;
+
+struct UnitreeLegConfig {
+    int hip_id;
+    int thigh_id;
+    int calf_id;
+    Eigen::Vector3d hip_offset;
+    double thigh_offset_y;
+    Eigen::Vector3d hip_mesh_rpy;
+    string thigh_mesh;
+};
+
+Eigen::Quaterniond yawOnlyQuaternion(const colvec &q) {
+    colvec ypr = R_to_ypr(quaternion_to_R(q));
+    return Eigen::Quaterniond(Eigen::AngleAxisd(ypr(0), Eigen::Vector3d::UnitZ()));
+}
+
+void publishMeshMarker(const ros::Time &stamp, int id, const string &resource,
+                       const Eigen::Vector3d &position, const Eigen::Quaterniond &orientation,
+                       bool use_embedded_materials = false) {
+    visualization_msgs::Marker marker;
+    marker.header.frame_id = _frame_id;
+    marker.header.stamp = stamp;
+    marker.ns = "mesh";
+    marker.id = id;
+    marker.type = visualization_msgs::Marker::MESH_RESOURCE;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.position.x = position.x();
+    marker.pose.position.y = position.y();
+    marker.pose.position.z = position.z();
+    marker.pose.orientation.w = orientation.w();
+    marker.pose.orientation.x = orientation.x();
+    marker.pose.orientation.y = orientation.y();
+    marker.pose.orientation.z = orientation.z();
+    marker.scale.x = scale;
+    marker.scale.y = scale;
+    marker.scale.z = scale;
+    marker.color.a = color_a;
+    marker.color.r = color_r;
+    marker.color.g = color_g;
+    marker.color.b = color_b;
+    marker.mesh_resource = resource;
+    marker.mesh_use_embedded_materials = use_embedded_materials;
+    meshPub.publish(marker);
+}
+
+void publishUnitreeA1(const ros::Time &stamp, const Eigen::Vector3d &position, const Eigen::Quaterniond &yaw_quat) {
+    const double hip_angle = 0.0;
+    const double thigh_angle = 0.82;
+    const double calf_angle = -1.62;
+    const double spacing_scale = scale;
+
+    const string base = "package://odom_visualization/meshes/unitree_a1/";
+    publishMeshMarker(stamp, 0, base + "trunk.dae", position, yaw_quat, false);
+
+    const std::array<UnitreeLegConfig, 4> legs = {{
+            {1, 2, 3, Eigen::Vector3d(0.1805, -0.0470, 0.0), -0.0838, Eigen::Vector3d(M_PI, 0.0, 0.0), base + "thigh_mirror.dae"},
+            {4, 5, 6, Eigen::Vector3d(0.1805, 0.0470, 0.0),  0.0838, Eigen::Vector3d(0.0, 0.0, 0.0), base + "thigh.dae"},
+            {7, 8, 9, Eigen::Vector3d(-0.1805, -0.0470, 0.0), -0.0838, Eigen::Vector3d(M_PI, M_PI, 0.0), base + "thigh_mirror.dae"},
+            {10, 11, 12, Eigen::Vector3d(-0.1805, 0.0470, 0.0), 0.0838, Eigen::Vector3d(0.0, M_PI, 0.0), base + "thigh.dae"},
+    }};
+
+    const Eigen::Affine3d base_tf = Eigen::Translation3d(position) * yaw_quat;
+    for (const auto &leg: legs) {
+        const Eigen::Affine3d hip_joint_tf =
+                base_tf * Eigen::Translation3d(leg.hip_offset * spacing_scale) *
+                Eigen::AngleAxisd(hip_angle, Eigen::Vector3d::UnitX());
+        const Eigen::Quaterniond hip_mesh_q(
+                hip_joint_tf.rotation() *
+                Eigen::AngleAxisd(leg.hip_mesh_rpy[0], Eigen::Vector3d::UnitX()).toRotationMatrix() *
+                Eigen::AngleAxisd(leg.hip_mesh_rpy[1], Eigen::Vector3d::UnitY()).toRotationMatrix() *
+                Eigen::AngleAxisd(leg.hip_mesh_rpy[2], Eigen::Vector3d::UnitZ()).toRotationMatrix());
+        publishMeshMarker(stamp, leg.hip_id, base + "hip.dae", hip_joint_tf.translation(), hip_mesh_q, false);
+
+        const Eigen::Affine3d thigh_joint_tf =
+                hip_joint_tf * Eigen::Translation3d(0.0, leg.thigh_offset_y * spacing_scale, 0.0) *
+                Eigen::AngleAxisd(thigh_angle, Eigen::Vector3d::UnitY());
+        publishMeshMarker(stamp, leg.thigh_id, leg.thigh_mesh, thigh_joint_tf.translation(),
+                          Eigen::Quaterniond(thigh_joint_tf.rotation()), false);
+
+        const Eigen::Affine3d calf_joint_tf =
+                thigh_joint_tf * Eigen::Translation3d(0.0, 0.0, -0.2 * spacing_scale) *
+                Eigen::AngleAxisd(calf_angle, Eigen::Vector3d::UnitY());
+        publishMeshMarker(stamp, leg.calf_id, base + "calf.dae", calf_joint_tf.translation(),
+                          Eigen::Quaterniond(calf_joint_tf.rotation()), false);
+    }
+}
+
+void publishRobotModel(const ros::Time &stamp, const Eigen::Vector3d &position, const colvec &q) {
+    if (robot_model == "unitree_a1") {
+        publishUnitreeA1(stamp, position, yawOnlyQuaternion(q));
+        return;
+    }
+
+    Eigen::Quaterniond orientation(q(0), q(1), q(2), q(3));
+    publishMeshMarker(stamp, 0, mesh_resource, position, orientation, false);
+}
 template<class T>
 string set_string(T &param_in) {
     stringstream ss;
@@ -366,15 +464,6 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr &msg) {
     heightPub.publish(heightROS);
 
     // Mesh model
-    meshROS.header.frame_id = _frame_id;
-    meshROS.header.stamp = msg->header.stamp;
-    meshROS.ns = "mesh";
-    meshROS.id = 0;
-    meshROS.type = visualization_msgs::Marker::MESH_RESOURCE;
-    meshROS.action = visualization_msgs::Marker::ADD;
-    meshROS.pose.position.x = msg->pose.pose.position.x;
-    meshROS.pose.position.y = msg->pose.pose.position.y;
-    meshROS.pose.position.z = msg->pose.pose.position.z;
     q(0) = msg->pose.pose.orientation.w;
     q(1) = msg->pose.pose.orientation.x;
     q(2) = msg->pose.pose.orientation.y;
@@ -384,19 +473,10 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr &msg) {
         ypr(0) += 45.0 * PI / 180.0;
         q = R_to_quaternion(ypr_to_R(ypr));
     }
-    meshROS.pose.orientation.w = q(0);
-    meshROS.pose.orientation.x = q(1);
-    meshROS.pose.orientation.y = q(2);
-    meshROS.pose.orientation.z = q(3);
-    meshROS.scale.x = scale;
-    meshROS.scale.y = scale;
-    meshROS.scale.z = scale;
-    meshROS.color.a = color_a;
-    meshROS.color.r = color_r;
-    meshROS.color.g = color_g;
-    meshROS.color.b = color_b;
-    meshROS.mesh_resource = mesh_resource;
-    meshPub.publish(meshROS);
+    publishRobotModel(msg->header.stamp,
+                      Eigen::Vector3d(msg->pose.pose.position.x, msg->pose.pose.position.y,
+                                      msg->pose.pose.position.z),
+                      q);
 
     // TF for raw sensor visualization
     if (tf45) {
@@ -430,48 +510,10 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr &msg) {
 }
 
 void cmd_callback(const quadrotor_msgs::PositionCommand cmd) {
-    if (cmd.header.frame_id == string("null")) return;
-
-    colvec pose(6);
-    pose(0) = cmd.position.x;
-    pose(1) = cmd.position.y;
-    pose(2) = cmd.position.z;
-    colvec q(4);
-    q(0) = 1.0;
-    q(1) = 0.0;
-    q(2) = 0.0;
-    q(3) = 0.0;
-    pose.rows(3, 5) = R_to_ypr(quaternion_to_R(q));
-
-    // Mesh model
-    meshROS.header.frame_id = _frame_id;
-    meshROS.header.stamp = cmd.header.stamp;
-    meshROS.ns = "mesh";
-    meshROS.id = 0;
-    meshROS.type = visualization_msgs::Marker::MESH_RESOURCE;
-    meshROS.action = visualization_msgs::Marker::ADD;
-    meshROS.pose.position.x = cmd.position.x;
-    meshROS.pose.position.y = cmd.position.y;
-    meshROS.pose.position.z = cmd.position.z;
-
-    if (cross_config) {
-        colvec ypr = R_to_ypr(quaternion_to_R(q));
-        ypr(0) += 45.0 * PI / 180.0;
-        q = R_to_quaternion(ypr_to_R(ypr));
-    }
-    meshROS.pose.orientation.w = q(0);
-    meshROS.pose.orientation.x = q(1);
-    meshROS.pose.orientation.y = q(2);
-    meshROS.pose.orientation.z = q(3);
-    meshROS.scale.x = 2.0;
-    meshROS.scale.y = 2.0;
-    meshROS.scale.z = 2.0;
-    meshROS.color.a = color_a;
-    meshROS.color.r = color_r;
-    meshROS.color.g = color_g;
-    meshROS.color.b = color_b;
-    meshROS.mesh_resource = mesh_resource;
-    meshPub.publish(meshROS);
+    // Keep the quadruped mesh locked to odometry only.
+    // Drawing the robot again from PositionCommand creates visible separation
+    // between the body and the sensing view whenever tracking lags behind commands.
+    (void)cmd;
 }
 
 void Syncallback(const nav_msgs::Odometry::ConstPtr &msg_me, const nav_msgs::Odometry::ConstPtr &msg_other,
@@ -519,6 +561,7 @@ int main(int argc, char **argv) {
 
     n.param("mesh_resource", mesh_resource,
             std::string("package://odom_visualization/meshes/yunque.dae"));
+    n.param("robot_model", robot_model, std::string("uav"));
     n.param("color/r", color_r, 1.0);
     n.param("color/g", color_g, 0.0);
     n.param("color/b", color_b, 0.0);

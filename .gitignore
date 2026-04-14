@@ -1,2 +1,13 @@
 uav_simulator/local_sensing/data/*
 cascadePID/data/*
+.docker_ws/
+build/
+devel/
+install/
+log/
+logs/
+artifacts/
+test_interface/scripts/__pycache__/
+fuel_planner/utils/lkh_tsp_solver/resource/_quad_*_single.par
+fuel_planner/utils/lkh_tsp_solver/resource/_quad_*_single.tsp
+fuel_planner/utils/lkh_tsp_solver/resource/_quad_*_single.txt

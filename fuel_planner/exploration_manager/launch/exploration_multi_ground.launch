@@ -1,0 +1,211 @@
+<launch>
+  <arg name="map_size_x" default="50.0"/>
+  <arg name="map_size_y" default="50.0"/>
+  <arg name="map_size_z" default="10.0"/>
+  <arg name="downsample_resolution" default="0.1"/>
+  <arg name="map_name" default="$(find map_generator)/resource/small_forest01cutoff.pcd"/>
+  <arg name="use_gpu" default="false"/>
+  <arg name="enable_rviz" default="true"/>
+  <arg name="rviz_config" default="$(find test_interface)/config/multi_ground.rviz"/>
+  <arg name="drone_num" default="3"/>
+  <arg name="robot_max_vel" default="0.8"/>
+  <arg name="robot_max_acc" default="0.6"/>
+  <arg name="autostart" default="true"/>
+  <arg name="autostart_delay" default="10.0"/>
+  <arg name="cloud_accum_max_frames" default="36"/>
+  <arg name="cloud_accum_max_age_sec" default="12.0"/>
+  <arg name="cloud_accum_voxel_leaf_size" default="0.20"/>
+  <arg name="cloud_accum_input_voxel_leaf_size" default="0.12"/>
+  <arg name="cloud_accum_max_points_before_filter" default="220000"/>
+
+  <node pkg="map_generator" name="map_pub" type="map_pub" output="screen"
+        args="$(arg map_name)">
+    <param name="add_boundary" value="0"/>
+    <param name="is_bridge" value="0"/>
+    <param name="downsample_res" value="$(arg downsample_resolution)"/>
+    <param name="map_offset_x" value="0.0"/>
+    <param name="map_offset_y" value="0.0"/>
+    <param name="map_offset_z" value="0.0"/>
+  </node>
+
+  <include file="$(find test_interface)/launch/single_drone_with_fuel.xml">
+    <arg name="drone_id" value="0"/>
+    <arg name="uav_num_" value="$(arg drone_num)"/>
+    <arg name="lidar_type" value="avia"/>
+    <arg name="init_x_" value="0.0"/>
+    <arg name="init_y_" value="0.0"/>
+    <arg name="init_z_" value="0.30"/>
+    <arg name="init_yaw" value="0.0"/>
+    <arg name="map_name_" value="$(arg map_name)"/>
+    <arg name="downsample_resolution_" value="$(arg downsample_resolution)"/>
+    <arg name="odom_topic" value="/lidar_slam/odom"/>
+    <arg name="use_gpu" value="$(arg use_gpu)"/>
+    <arg name="use_uav_extra_model_" value="1"/>
+    <arg name="robot_color_r" value="0.68"/>
+    <arg name="robot_color_g" value="0.61"/>
+    <arg name="robot_color_b" value="0.54"/>
+    <arg name="robot_scale_" value="1.8"/>
+  </include>
+
+  <include file="$(find test_interface)/launch/single_drone_with_fuel.xml">
+    <arg name="drone_id" value="1"/>
+    <arg name="uav_num_" value="$(arg drone_num)"/>
+    <arg name="lidar_type" value="avia"/>
+    <arg name="init_x_" value="-2.0"/>
+    <arg name="init_y_" value="-1.5"/>
+    <arg name="init_z_" value="0.30"/>
+    <arg name="init_yaw" value="0.0"/>
+    <arg name="map_name_" value="$(arg map_name)"/>
+    <arg name="downsample_resolution_" value="$(arg downsample_resolution)"/>
+    <arg name="odom_topic" value="/lidar_slam/odom"/>
+    <arg name="use_gpu" value="$(arg use_gpu)"/>
+    <arg name="use_uav_extra_model_" value="1"/>
+    <arg name="robot_color_r" value="0.50"/>
+    <arg name="robot_color_g" value="0.58"/>
+    <arg name="robot_color_b" value="0.64"/>
+    <arg name="robot_scale_" value="1.8"/>
+  </include>
+
+  <include file="$(find test_interface)/launch/single_drone_with_fuel.xml">
+    <arg name="drone_id" value="2"/>
+    <arg name="uav_num_" value="$(arg drone_num)"/>
+    <arg name="lidar_type" value="avia"/>
+    <arg name="init_x_" value="-2.0"/>
+    <arg name="init_y_" value="1.5"/>
+    <arg name="init_z_" value="0.30"/>
+    <arg name="init_yaw" value="0.0"/>
+    <arg name="map_name_" value="$(arg map_name)"/>
+    <arg name="downsample_resolution_" value="$(arg downsample_resolution)"/>
+    <arg name="odom_topic" value="/lidar_slam/odom"/>
+    <arg name="use_gpu" value="$(arg use_gpu)"/>
+    <arg name="use_uav_extra_model_" value="1"/>
+    <arg name="robot_color_r" value="0.58"/>
+    <arg name="robot_color_g" value="0.64"/>
+    <arg name="robot_color_b" value="0.52"/>
+    <arg name="robot_scale_" value="1.8"/>
+  </include>
+
+  <include file="$(find exploration_manager)/launch/exploration_robot.xml">
+    <arg name="robot_ns" value="quad_0"/>
+    <arg name="drone_id" value="0"/>
+    <arg name="init_x" value="0.0"/>
+    <arg name="init_y" value="0.0"/>
+    <arg name="init_z" value="0.30"/>
+    <arg name="map_size_x" value="$(arg map_size_x)"/>
+    <arg name="map_size_y" value="$(arg map_size_y)"/>
+    <arg name="map_size_z" value="$(arg map_size_z)"/>
+    <arg name="odom_topic" value="/quad_0/lidar_slam/odom"/>
+    <arg name="sensor_pose_topic" value="/quad0_pcl_render_node/sensor_pose"/>
+    <arg name="cloud_topic" value="/quad0_pcl_render_node/cloud"/>
+    <arg name="goal_topic" value="/quad_0/move_base_simple/goal"/>
+    <arg name="max_vel" value="$(arg robot_max_vel)"/>
+    <arg name="max_acc" value="$(arg robot_max_acc)"/>
+  </include>
+
+  <include file="$(find exploration_manager)/launch/exploration_robot.xml">
+    <arg name="robot_ns" value="quad_1"/>
+    <arg name="drone_id" value="1"/>
+    <arg name="init_x" value="-2.0"/>
+    <arg name="init_y" value="-1.5"/>
+    <arg name="init_z" value="0.30"/>
+    <arg name="map_size_x" value="$(arg map_size_x)"/>
+    <arg name="map_size_y" value="$(arg map_size_y)"/>
+    <arg name="map_size_z" value="$(arg map_size_z)"/>
+    <arg name="odom_topic" value="/quad_1/lidar_slam/odom"/>
+    <arg name="sensor_pose_topic" value="/quad1_pcl_render_node/sensor_pose"/>
+    <arg name="cloud_topic" value="/quad1_pcl_render_node/cloud"/>
+    <arg name="goal_topic" value="/quad_1/move_base_simple/goal"/>
+    <arg name="max_vel" value="$(arg robot_max_vel)"/>
+    <arg name="max_acc" value="$(arg robot_max_acc)"/>
+  </include>
+
+  <include file="$(find exploration_manager)/launch/exploration_robot.xml">
+    <arg name="robot_ns" value="quad_2"/>
+    <arg name="drone_id" value="2"/>
+    <arg name="init_x" value="-2.0"/>
+    <arg name="init_y" value="1.5"/>
+    <arg name="init_z" value="0.30"/>
+    <arg name="map_size_x" value="$(arg map_size_x)"/>
+    <arg name="map_size_y" value="$(arg map_size_y)"/>
+    <arg name="map_size_z" value="$(arg map_size_z)"/>
+    <arg name="odom_topic" value="/quad_2/lidar_slam/odom"/>
+    <arg name="sensor_pose_topic" value="/quad2_pcl_render_node/sensor_pose"/>
+    <arg name="cloud_topic" value="/quad2_pcl_render_node/cloud"/>
+    <arg name="goal_topic" value="/quad_2/move_base_simple/goal"/>
+    <arg name="max_vel" value="$(arg robot_max_vel)"/>
+    <arg name="max_acc" value="$(arg robot_max_acc)"/>
+  </include>
+
+  <node pkg="test_interface" type="rolling_cloud_accumulator" name="quad0_cloud_accumulator" output="screen">
+    <param name="input_topic" value="/quad0_pcl_render_node/cloud"/>
+    <param name="output_topic" value="/quad0_pcl_render_node/cloud_accum"/>
+    <param name="max_frames" value="$(arg cloud_accum_max_frames)"/>
+    <param name="max_age_sec" value="$(arg cloud_accum_max_age_sec)"/>
+    <param name="voxel_leaf_size" value="$(arg cloud_accum_voxel_leaf_size)"/>
+    <param name="input_voxel_leaf_size" value="$(arg cloud_accum_input_voxel_leaf_size)"/>
+    <param name="max_points_before_filter" value="$(arg cloud_accum_max_points_before_filter)"/>
+  </node>
+
+  <node pkg="test_interface" type="rolling_cloud_accumulator" name="quad1_cloud_accumulator" output="screen">
+    <param name="input_topic" value="/quad1_pcl_render_node/cloud"/>
+    <param name="output_topic" value="/quad1_pcl_render_node/cloud_accum"/>
+    <param name="max_frames" value="$(arg cloud_accum_max_frames)"/>
+    <param name="max_age_sec" value="$(arg cloud_accum_max_age_sec)"/>
+    <param name="voxel_leaf_size" value="$(arg cloud_accum_voxel_leaf_size)"/>
+    <param name="input_voxel_leaf_size" value="$(arg cloud_accum_input_voxel_leaf_size)"/>
+    <param name="max_points_before_filter" value="$(arg cloud_accum_max_points_before_filter)"/>
+  </node>
+
+  <node pkg="test_interface" type="rolling_cloud_accumulator" name="quad2_cloud_accumulator" output="screen">
+    <param name="input_topic" value="/quad2_pcl_render_node/cloud"/>
+    <param name="output_topic" value="/quad2_pcl_render_node/cloud_accum"/>
+    <param name="max_frames" value="$(arg cloud_accum_max_frames)"/>
+    <param name="max_age_sec" value="$(arg cloud_accum_max_age_sec)"/>
+    <param name="voxel_leaf_size" value="$(arg cloud_accum_voxel_leaf_size)"/>
+    <param name="input_voxel_leaf_size" value="$(arg cloud_accum_input_voxel_leaf_size)"/>
+    <param name="max_points_before_filter" value="$(arg cloud_accum_max_points_before_filter)"/>
+  </node>
+
+  <node if="$(arg autostart)" pkg="test_interface" type="publish_start_goal.py"
+        name="quad0_start_goal" output="screen">
+    <param name="topic" value="/quad_0/move_base_simple/goal"/>
+    <param name="delay" value="$(arg autostart_delay)"/>
+    <param name="hold_duration" value="12.0"/>
+    <param name="publish_period" value="0.25"/>
+    <param name="x" value="8.0"/>
+    <param name="y" value="0.0"/>
+    <param name="z" value="0.30"/>
+    <param name="w" value="1.0"/>
+  </node>
+
+  <node if="$(arg autostart)" pkg="test_interface" type="publish_start_goal.py"
+        name="quad1_start_goal" output="screen">
+    <param name="topic" value="/quad_1/move_base_simple/goal"/>
+    <param name="delay" value="$(eval float(arg('autostart_delay')) + 2.0)"/>
+    <param name="hold_duration" value="12.0"/>
+    <param name="publish_period" value="0.25"/>
+    <param name="x" value="6.0"/>
+    <param name="y" value="-6.0"/>
+    <param name="z" value="0.30"/>
+    <param name="w" value="1.0"/>
+  </node>
+
+  <node if="$(arg autostart)" pkg="test_interface" type="publish_start_goal.py"
+        name="quad2_start_goal" output="screen">
+    <param name="topic" value="/quad_2/move_base_simple/goal"/>
+    <param name="delay" value="$(eval float(arg('autostart_delay')) + 4.0)"/>
+    <param name="hold_duration" value="12.0"/>
+    <param name="publish_period" value="0.25"/>
+    <param name="x" value="6.0"/>
+    <param name="y" value="6.0"/>
+    <param name="z" value="0.30"/>
+    <param name="w" value="1.0"/>
+  </node>
+
+  <node if="$(arg enable_rviz)"
+        name="rvizvisualisation"
+        pkg="rviz"
+        type="rviz"
+        output="screen"
+        args="-d $(arg rviz_config)" />
+</launch>

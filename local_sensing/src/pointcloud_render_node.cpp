@@ -31,6 +31,9 @@
 #include <opencv2/core/eigen.hpp>
 #include <deque>
 #include <numeric>
+#include <atomic>
+#include <signal.h>
+#include <omp.h>
 
 // #define DEBUG
 
@@ -76,8 +79,10 @@ ros::Subscriber odom_sub, UAV_odom_sub;
 ros::Subscriber global_map_sub, local_map_sub;
 
 ros::Timer local_sensing_timer, pose_timer, dynobj_timer;
+std::atomic<bool> shutting_down{false};
 
 bool has_global_map(false);
+int render_threads = 1;
 bool has_local_map(false);
 bool has_odom(false);
 bool has_dyn_map(false);
@@ -152,6 +157,111 @@ double collision_check_time_sum = 0;
 int collision_check_time_count = 0;
 
 sensor_msgs::PointCloud2 dynobj_points_pcd;
+
+namespace
+{
+constexpr double kTinyDistance = 1e-6;
+constexpr double kTinyDenominator = 1e-6;
+
+inline double clampUnit(double value)
+{
+  if (value > 1.0)
+  {
+    return 1.0;
+  }
+  if (value < -1.0)
+  {
+    return -1.0;
+  }
+  return value;
+}
+
+inline int safeHalfCoverAngle(double cover_distance, double distance, double polar_resolution_deg)
+{
+  if (distance <= kTinyDistance || polar_resolution_deg <= 0.0)
+  {
+    return 0;
+  }
+
+  const double ratio = clampUnit(cover_distance / distance);
+  const double resolution_rad = M_PI * polar_resolution_deg / 180.0;
+  if (resolution_rad <= kTinyDenominator)
+  {
+    return 0;
+  }
+
+  return std::max(0, static_cast<int>(std::ceil(std::asin(ratio) / resolution_rad)));
+}
+
+inline bool isFiniteNonZero(double value)
+{
+  return std::isfinite(value) && std::abs(value) > kTinyDenominator;
+}
+
+inline bool isFiniteQuaternion(const Eigen::Quaterniond &q)
+{
+  return std::isfinite(q.x()) && std::isfinite(q.y()) && std::isfinite(q.z()) &&
+         std::isfinite(q.w());
+}
+
+inline bool isFiniteMatrix(const Eigen::Matrix4d &matrix)
+{
+  return matrix.array().isFinite().all();
+}
+
+inline bool isFinitePoint(const PointType &pt)
+{
+  return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z) &&
+         std::isfinite(pt.intensity);
+}
+
+inline bool nodeIsActive()
+{
+  return !shutting_down.load(std::memory_order_relaxed) && ros::ok();
+}
+
+inline bool exceedsVerticalFov(const Eigen::Vector3d &dir, const Eigen::Vector3d &forward, double vertical_fov_deg)
+{
+  const double dir_norm = dir.norm();
+  const double forward_norm = forward.norm();
+  if (dir_norm <= kTinyDistance || forward_norm <= kTinyDistance)
+  {
+    return false;
+  }
+
+  const double cos_value = clampUnit(dir.dot(forward) / (dir_norm * forward_norm));
+  const double angle = std::acos(cos_value);
+  const double limit = M_PI * (vertical_fov_deg / 2.0) / 180.0;
+  return angle > limit;
+}
+
+inline void setPatternCellSafe(Eigen::MatrixXf &pattern_matrix, int x, int y)
+{
+  if (x >= 0 && x < pattern_matrix.rows() && y >= 0 && y < pattern_matrix.cols())
+  {
+    pattern_matrix(x, y) = 2;
+  }
+}
+} // namespace
+
+void stopNodeTimers()
+{
+  local_sensing_timer.stop();
+  pose_timer.stop();
+  dynobj_timer.stop();
+}
+
+void beginNodeShutdown()
+{
+  shutting_down.store(true, std::memory_order_relaxed);
+  stopNodeTimers();
+}
+
+void handleNodeSignal(int)
+{
+  beginNodeShutdown();
+  ros::shutdown();
+}
 
 pcl::PointCloud<PointType> generate_sphere_cloud(double size)
 {
@@ -316,6 +426,11 @@ void generate_ptclouds_by_pos(Eigen::Vector3d obs_pos, int obs_type, pcl::PointC
 
 void dynobjGenerate(const ros::TimerEvent &event)
 {
+  if (!nodeIsActive())
+  {
+    return;
+  }
+
   if (has_global_map == true && dynobj_enable == 1)
   {
     dynobj_points.clear();
@@ -647,22 +762,13 @@ void rcvOdometryCallbck(const nav_msgs::Odometry &odom)
   body2world(1, 3) = odom.pose.pose.position.y;
   body2world(2, 3) = odom.pose.pose.position.z;
 
-  // convert to cam pose
-  sensor2world = body2world * sensor2body;
-
-  Eigen::Quaterniond q;
-  q = sensor2world.block<3, 3>(0, 0);
-
   geometry_msgs::PoseStamped sensor_pose;
   sensor_pose.header = odom_.header;
-  sensor_pose.header.frame_id = "/map";
+  sensor_pose.header.frame_id = "world";
   sensor_pose.pose.position.x = odom_.pose.pose.position.x;
   sensor_pose.pose.position.y = odom_.pose.pose.position.y;
   sensor_pose.pose.position.z = odom_.pose.pose.position.z;
-  sensor_pose.pose.orientation.w = q.w();
-  sensor_pose.pose.orientation.x = q.x();
-  sensor_pose.pose.orientation.y = q.y();
-  sensor_pose.pose.orientation.z = q.z();
+  sensor_pose.pose.orientation = odom_.pose.pose.orientation;
   pub_pose.publish(sensor_pose);
 
   ros::Time start_time = ros::Time::now();
@@ -847,6 +953,10 @@ int comp_time_count = 0;
 
 void renderSensedPoints(const ros::TimerEvent &event)
 {
+  if (!nodeIsActive())
+  {
+    return;
+  }
 
   ros::Time t1 = ros::Time::now();
 
@@ -858,6 +968,12 @@ void renderSensedPoints(const ros::TimerEvent &event)
   q.y() = odom_.pose.pose.orientation.y;
   q.z() = odom_.pose.pose.orientation.z;
   q.w() = odom_.pose.pose.orientation.w;
+  if (!isFiniteQuaternion(q) || q.norm() <= kTinyDistance)
+  {
+    ROS_WARN_THROTTLE(1.0, "Skip sensing due to invalid odom quaternion");
+    return;
+  }
+  q.normalize();
 
   // trans other uav point in
   if (otheruav_points.size() > 0)
@@ -1011,12 +1127,12 @@ void renderSensedPoints(const ros::TimerEvent &event)
         y = 0;
       }
 
-      pattern_matrix(x, y) = 2; // real pattern
-      pattern_matrix(x, y + linestep) = 2;
-      pattern_matrix(x, y + 2 * linestep) = 2;
-      pattern_matrix(x, y + 3 * linestep) = 2;
-      pattern_matrix(x, y - linestep) = 2;
-      pattern_matrix(x, y - 2 * linestep) = 2;
+      setPatternCellSafe(pattern_matrix, x, y); // real pattern
+      setPatternCellSafe(pattern_matrix, x, y + linestep);
+      setPatternCellSafe(pattern_matrix, x, y + 2 * linestep);
+      setPatternCellSafe(pattern_matrix, x, y + 3 * linestep);
+      setPatternCellSafe(pattern_matrix, x, y - linestep);
+      setPatternCellSafe(pattern_matrix, x, y - 2 * linestep);
     }
   }
 
@@ -1195,7 +1311,7 @@ void renderSensedPoints(const ros::TimerEvent &event)
 
   const size_t size_ = fov_points.size();
 
-  omp_set_num_threads(32);
+  omp_set_num_threads(std::max(1, render_threads));
 
 #ifndef DEBUG
 #pragma omp parallel /*default(none)*/                                                             \
@@ -1238,8 +1354,7 @@ void renderSensedPoints(const ros::TimerEvent &event)
       int cen_theta_index = polar_pt.theta + round(0.5 * polar_width);
       int cen_fi_index = polar_pt.fi + round(0.5 * polar_height);
 
-      int half_cover_angle = ceil(
-          (asin(cover_dis / dir_vec.norm()) / (M_PI * polar_resolution / 180.0)));
+      int half_cover_angle = safeHalfCoverAngle(cover_dis, dir_vec.norm(), polar_resolution);
       // ROS_INFO("half cover angle = %d",half_cover_angle);
       // int half_cover_angle = 1;
 
@@ -1262,7 +1377,11 @@ void renderSensedPoints(const ros::TimerEvent &event)
           if ((fov_pointsindex[i] >= origin_mapptcount + 100000) && drone_num > 1)
           {
             int point_temp_index = fov_pointsindex[i] - origin_mapptcount - 100000;
-            int droneid_temp = (point_temp_index / (uav_points_num));
+            if (point_temp_index < 0 || uav_points_num <= 0)
+            {
+              polarpointintensity_matrix(cen_theta_index, cen_fi_index) = MIN_INTENSITY;
+              continue;
+            }
             polarpointintensity_matrix(cen_theta_index, cen_fi_index) = fov_points[i].intensity;
           }
           else
@@ -1401,11 +1520,24 @@ void renderSensedPoints(const ros::TimerEvent &event)
           else if (drone_num > 1)
           {
             point_temp_index = point_index - origin_mapptcount - 100000;
-            droneid_temp = (point_temp_index / (uav_points_num));
-
-            if ((point_temp_index - droneid_temp * uav_points_num) > (otheruav_points_inrender[droneid_temp].size() - 1))
+            if (point_temp_index < 0 || uav_points_num <= 0)
+            {
               continue;
-            pt = otheruav_points_inrender[droneid_temp][point_temp_index - droneid_temp * uav_points_num];
+            }
+
+            droneid_temp = (point_temp_index / (uav_points_num));
+            if (droneid_temp < 0 || droneid_temp >= static_cast<int>(otheruav_points_inrender.size()))
+            {
+              continue;
+            }
+
+            const int local_point_index = point_temp_index - droneid_temp * uav_points_num;
+            if (local_point_index < 0 ||
+                local_point_index >= static_cast<int>(otheruav_points_inrender[droneid_temp].size()))
+            {
+              continue;
+            }
+            pt = otheruav_points_inrender[droneid_temp][local_point_index];
           }
           else
           {
@@ -1431,8 +1563,7 @@ void renderSensedPoints(const ros::TimerEvent &event)
         int cen_theta_index = polar_pt.theta + round(0.5 * polar_width);
         int cen_fi_index = polar_pt.fi + round(0.5 * polar_height);
 
-        int half_cover_angle = ceil(
-            (asin(cover_dis / pt_dis) / (M_PI * polar_resolution / 180.0)));
+        int half_cover_angle = safeHalfCoverAngle(cover_dis, pt_dis, polar_resolution);
 
         ros::Time t_in2 = ros::Time::now();
         // ROS_INFO("Init using %f s",(t_in2-t_in1).toSec());
@@ -1487,8 +1618,16 @@ void renderSensedPoints(const ros::TimerEvent &event)
                 ray = rot * ray;
                 ray.normalize();
                 vpt = ray.dot(plane_normal);
+                if (!isFiniteNonZero(vpt))
+                {
+                  continue;
+                }
 
                 line_t = dir.dot(plane_normal) / vpt;
+                if (!std::isfinite(line_t))
+                {
+                  continue;
+                }
                 inter_point_world = pos + line_t * ray;
 
                 if ((inter_point_world - pt3).norm() > 1 * 0.8660254 * downsample_res) // sqrt 3   0.5*1.7321  2*0.8660254*downsample_res
@@ -1638,7 +1777,7 @@ void renderSensedPoints(const ros::TimerEvent &event)
           }
           else
           {
-            if (acos(dir.dot(rotmyaw) / (dir.norm() * rotmyaw.norm()) > M_PI * (vertical_fov / 2.0) / 180.0))
+            if (exceedsVerticalFov(dir, rotmyaw, vertical_fov))
             {
               continue;
             }
@@ -1678,7 +1817,7 @@ void renderSensedPoints(const ros::TimerEvent &event)
           }
           else
           {
-            if (acos(dir.dot(rotmyaw) / (dir.norm() * rotmyaw.norm()) > M_PI * (vertical_fov / 2.0) / 180.0))
+            if (exceedsVerticalFov(dir, rotmyaw, vertical_fov))
             {
               continue;
             }
@@ -1717,7 +1856,7 @@ void renderSensedPoints(const ros::TimerEvent &event)
           }
           else
           {
-            if (acos(dir.dot(rotmyaw) / (dir.norm() * rotmyaw.norm()) > M_PI * (vertical_fov / 2.0) / 180.0))
+            if (exceedsVerticalFov(dir, rotmyaw, vertical_fov))
             {
               continue;
             }
@@ -1759,6 +1898,10 @@ void renderSensedPoints(const ros::TimerEvent &event)
   pcl::toROSMsg(local_map_filled, local_map_pcd);
   local_map_pcd.header = odom_.header;
   local_map_pcd.header.frame_id = "world";
+  if (!nodeIsActive())
+  {
+    return;
+  }
   pub_cloud.publish(local_map_pcd);
 
   // transform
@@ -1787,16 +1930,38 @@ void renderSensedPoints(const ros::TimerEvent &event)
       0, 0, 0, 1;
   Eigen::Matrix4d world2sensor;
   world2sensor = sensor2world.inverse();
+  if (!isFiniteMatrix(sensor2world) || !isFiniteMatrix(world2sensor))
+  {
+    ROS_WARN_THROTTLE(1.0, "Skip sensor-frame transform due to invalid transform matrix");
+    return;
+  }
 
   // pointcloud
   point_in_sensor.points.clear();
-  pcl::transformPointCloud(local_map_filled, point_in_sensor, world2sensor);
+  pcl::PointCloud<PointType> local_map_filled_sane;
+  local_map_filled_sane.points.reserve(local_map_filled.points.size());
+  for (const auto &pt : local_map_filled.points)
+  {
+    if (isFinitePoint(pt))
+    {
+      local_map_filled_sane.points.push_back(pt);
+    }
+  }
+  local_map_filled_sane.width = local_map_filled_sane.points.size();
+  local_map_filled_sane.height = 1;
+  local_map_filled_sane.is_dense = true;
+
+  pcl::transformPointCloud(local_map_filled_sane, point_in_sensor, world2sensor);
   point_in_sensor.width = point_in_sensor.points.size();
   point_in_sensor.height = 1;
   point_in_sensor.is_dense = true;
   pcl::toROSMsg(point_in_sensor, sensor_map_pcd);
   sensor_map_pcd.header.frame_id = sensor_frame_id_;
   sensor_map_pcd.header.stamp = time_stamp_;
+  if (!nodeIsActive())
+  {
+    return;
+  }
   pub_intercloud.publish(sensor_map_pcd);
 
   // depth image generation and output
@@ -1824,6 +1989,10 @@ void renderSensedPoints(const ros::TimerEvent &event)
   out_msg.header.frame_id = "/sensor";
   out_msg.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
   out_msg.image = img.clone();
+  if (!nodeIsActive())
+  {
+    return;
+  }
   depth_img_pub_.publish(out_msg.toImageMsg());
 
   ros::Time t_total = ros::Time::now();
@@ -1840,8 +2009,15 @@ void renderSensedPoints(const ros::TimerEvent &event)
     comp_time_vec.pop_front();
     geometry_msgs::PoseStamped totaltime_pub;
     totaltime_pub.pose.position.x = accumulate(comp_time_vec.begin(), comp_time_vec.end(), 0.0) / comp_time_vec.size();
+    if (!nodeIsActive())
+    {
+      return;
+    }
     comp_time_pub.publish(totaltime_pub);
-    ROS_INFO("Temp compute time = %lf, average compute time = %lf", comp_time_temp, totaltime_pub.pose.position.x);
+    if (nodeIsActive())
+    {
+      ROS_INFO("Temp compute time = %lf, average compute time = %lf", comp_time_temp, totaltime_pub.pose.position.x);
+    }
   }
   else
   {
@@ -1869,8 +2045,10 @@ void pubSensorPose(const ros::TimerEvent &e)
 
 int main(int argc, char **argv)
 {
-  ros::init(argc, argv, "pcl_render");
+  ros::init(argc, argv, "pcl_render", ros::init_options::NoSigintHandler);
   ros::NodeHandle nh("~");
+  signal(SIGINT, handleNodeSignal);
+  signal(SIGTERM, handleNodeSignal);
 
   nh.param("quadrotor_name", quad_name, std::string("quadrotor"));
   nh.getParam("is_360lidar", is_360lidar);
@@ -1902,6 +2080,11 @@ int main(int argc, char **argv)
   nh.getParam("collision_range", collision_range);
 
   nh.getParam("output_pcd", output_pcd);
+  nh.param("render_threads", render_threads, 1);
+  render_threads = std::max(1, render_threads);
+  omp_set_dynamic(0);
+  omp_set_num_threads(render_threads);
+  ROS_WARN_STREAM("pcl_render_node using " << render_threads << " OpenMP thread(s) for stability");
 
   // subscribe other uav pos
   nh.param("uav_num", drone_num, 1);
@@ -2016,6 +2199,9 @@ int main(int argc, char **argv)
     status = ros::ok();
     rate.sleep();
   }
+
+  beginNodeShutdown();
+  delete[] subs;
 
   // if (output_pcd == 1)
   // {

@@ -5,6 +5,60 @@ Paper is available on Arxiv: https://arxiv.org/abs/2211.10716
 
 The video is available on youtube: https://youtu.be/hiRtcq-5lN0
 
+## Ground Docker Quick Start
+
+This branch includes a ground-robot adaptation of the MARSIM + FUEL stack:
+
+- 3 Unitree-style quadruped visualizations in RViz
+- ground-constrained multi-robot exploration launch
+- fixed-trajectory forest coverage showcase launch
+- rolling accumulated point cloud visualization for each robot
+
+Recommended reproduction path on a fresh Ubuntu 20.04 machine:
+
+```bash
+git clone git@github.com:Desperodoo/MARSIM-Ground.git
+cd MARSIM-Ground
+
+# Optional if you need the same proxy route we used during development
+export HTTP_PROXY=http://172.18.196.129:7890
+export HTTPS_PROXY=$HTTP_PROXY
+export ALL_PROXY=$HTTP_PROXY
+export NO_PROXY=localhost,127.0.0.1,::1
+
+./docker/build_all.sh
+```
+
+If you want RViz from inside Docker on a local X11 desktop:
+
+```bash
+xhost +local:root
+export DISPLAY=${DISPLAY:-:0}
+export XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority}
+```
+
+Run the fixed-trajectory forest coverage showcase:
+
+```bash
+./docker/run_showcase.sh
+```
+
+Run the multi-robot exploration version:
+
+```bash
+./docker/run_exploration_multi.sh
+```
+
+Useful toggles:
+
+```bash
+ENABLE_RVIZ=false ./docker/run_showcase.sh
+USE_GPU=true ./docker/run_showcase.sh
+AUTOSTART=false ./docker/run_exploration_multi.sh
+```
+
+The Docker workflow uses a local catkin workspace at `.docker_ws/` and mounts this repository into the container as `/root/marsim_ws/src/MARSIM_fuel`.
+
 ## Update
 
 Ubuntu 20.04 is also supported in ubuntu20 branch.

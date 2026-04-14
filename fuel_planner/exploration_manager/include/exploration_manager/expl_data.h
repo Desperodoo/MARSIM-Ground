@@ -65,6 +65,7 @@ struct ExplorationParam {
   int top_view_num_;
   double max_decay_;
   string tsp_dir_;  // resource dir of tsp solver
+  string tsp_file_prefix_;
   double relax_time_;
 };
 

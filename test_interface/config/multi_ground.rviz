@@ -1,0 +1,418 @@
+Panels:
+  - Class: rviz/Displays
+    Help Height: 0
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /GlobalCloud1
+        - /Quad01
+        - /Quad01/ExploredCloud1
+        - /Quad11
+        - /Quad11/ExploredCloud1
+        - /Quad21
+        - /Quad21/ExploredCloud1
+      Splitter Ratio: 0.550000011920929
+    Tree Height: 840
+  - Class: rviz/Selection
+    Name: Selection
+  - Class: rviz/Tool Properties
+    Expanded:
+      - /Publish Point1
+      - /2D Nav Goal1
+    Name: Tool Properties
+    Splitter Ratio: 0.5799999833106995
+  - Class: rviz/Views
+    Expanded:
+      - /Current View1
+    Name: Views
+    Splitter Ratio: 0.5
+  - Class: rviz/Time
+    Name: Time
+    SyncMode: 0
+    SyncSource: ExploredCloud
+Preferences:
+  PromptSaveOnExit: true
+Toolbars:
+  toolButtonStyle: 2
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.699999988079071
+      Cell Size: 1
+      Class: rviz/Grid
+      Color: 160; 160; 164
+      Enabled: false
+      Line Style:
+        Line Width: 0.029999999329447746
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 60
+      Reference Frame: <Fixed Frame>
+      Value: false
+    - Alpha: 0.10000000149011612
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 230; 230; 230
+      Color Transformer: FlatColor
+      Decay Time: 30
+      Enabled: false
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: GlobalCloud
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 2
+      Size (m): 0.029999999329447746
+      Style: Points
+      Topic: /map_generator/global_cloud
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: false
+    - Class: rviz/Group
+      Displays:
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad0_odom_visualization/robot
+          Name: Robot
+          Namespaces:
+            mesh: true
+          Queue Size: 100
+          Value: true
+        - Alpha: 0.10000000149011612
+          Autocompute Intensity Bounds: true
+          Autocompute Value Bounds:
+            Max Value: 10
+            Min Value: -10
+            Value: true
+          Axis: Z
+          Channel Name: intensity
+          Class: rviz/PointCloud2
+          Color: 200; 200; 200
+          Color Transformer: RGB8
+          Decay Time: 60
+          Enabled: true
+          Invert Rainbow: false
+          Max Color: 255; 255; 255
+          Min Color: 0; 0; 0
+          Name: ExploredCloud
+          Position Transformer: XYZ
+          Queue Size: 10
+          Selectable: true
+          Size (Pixels): 2
+          Size (m): 0.07999999821186066
+          Style: Points
+          Topic: /quad0_pcl_render_node/cloud_accum
+          Unreliable: false
+          Use Fixed Frame: true
+          Use rainbow: true
+          Value: true
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad_0/planning/history_traj
+          Name: HistoryTraj
+          Namespaces:
+            history_traj: true
+          Queue Size: 100
+          Value: true
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad_0/planning/body_axes
+          Name: BodyAxes
+          Namespaces:
+            body_axes: true
+          Queue Size: 100
+          Value: true
+        - Class: rviz/Marker
+          Enabled: false
+          Marker Topic: /quad_0/planning/travel_traj
+          Name: TravelTraj
+          Namespaces:
+            {}
+          Queue Size: 100
+          Value: false
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad_0/planning/position_cmd_vis
+          Name: PositionCmd
+          Namespaces:
+            current_pose: true
+          Queue Size: 100
+          Value: true
+        - Alpha: 1
+          Arrow Length: 0.30000001192092896
+          Axes Length: 0.30000001192092896
+          Axes Radius: 0.009999999776482582
+          Class: rviz/PoseArray
+          Color: 255; 25; 0
+          Enabled: false
+          Head Length: 0.07000000029802322
+          Head Radius: 0.029999999329447746
+          Name: Waypoints
+          Queue Size: 10
+          Shaft Length: 0.23000000417232513
+          Shaft Radius: 0.009999999776482582
+          Shape: Arrow (Flat)
+          Topic: /quad_0/waypoint_generator/waypoints_vis
+          Unreliable: false
+          Value: false
+      Enabled: true
+      Name: Quad0
+    - Class: rviz/Group
+      Displays:
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad1_odom_visualization/robot
+          Name: Robot
+          Namespaces:
+            mesh: true
+          Queue Size: 100
+          Value: true
+        - Alpha: 0.10000000149011612
+          Autocompute Intensity Bounds: true
+          Autocompute Value Bounds:
+            Max Value: 10
+            Min Value: -10
+            Value: true
+          Axis: Z
+          Channel Name: intensity
+          Class: rviz/PointCloud2
+          Color: 200; 200; 200
+          Color Transformer: RGB8
+          Decay Time: 60
+          Enabled: true
+          Invert Rainbow: false
+          Max Color: 255; 255; 255
+          Min Color: 0; 0; 0
+          Name: ExploredCloud
+          Position Transformer: XYZ
+          Queue Size: 10
+          Selectable: true
+          Size (Pixels): 2
+          Size (m): 0.07999999821186066
+          Style: Points
+          Topic: /quad1_pcl_render_node/cloud_accum
+          Unreliable: false
+          Use Fixed Frame: true
+          Use rainbow: true
+          Value: true
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad_1/planning/history_traj
+          Name: HistoryTraj
+          Namespaces:
+            history_traj: true
+          Queue Size: 100
+          Value: true
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad_1/planning/body_axes
+          Name: BodyAxes
+          Namespaces:
+            body_axes: true
+          Queue Size: 100
+          Value: true
+        - Class: rviz/Marker
+          Enabled: false
+          Marker Topic: /quad_1/planning/travel_traj
+          Name: TravelTraj
+          Namespaces:
+            {}
+          Queue Size: 100
+          Value: false
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad_1/planning/position_cmd_vis
+          Name: PositionCmd
+          Namespaces:
+            current_pose: true
+          Queue Size: 100
+          Value: true
+        - Alpha: 1
+          Arrow Length: 0.30000001192092896
+          Axes Length: 0.30000001192092896
+          Axes Radius: 0.009999999776482582
+          Class: rviz/PoseArray
+          Color: 255; 25; 0
+          Enabled: false
+          Head Length: 0.07000000029802322
+          Head Radius: 0.029999999329447746
+          Name: Waypoints
+          Queue Size: 10
+          Shaft Length: 0.23000000417232513
+          Shaft Radius: 0.009999999776482582
+          Shape: Arrow (Flat)
+          Topic: /quad_1/waypoint_generator/waypoints_vis
+          Unreliable: false
+          Value: false
+      Enabled: true
+      Name: Quad1
+    - Class: rviz/Group
+      Displays:
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad2_odom_visualization/robot
+          Name: Robot
+          Namespaces:
+            mesh: true
+          Queue Size: 100
+          Value: true
+        - Alpha: 0.10000000149011612
+          Autocompute Intensity Bounds: true
+          Autocompute Value Bounds:
+            Max Value: 10
+            Min Value: -10
+            Value: true
+          Axis: Z
+          Channel Name: intensity
+          Class: rviz/PointCloud2
+          Color: 200; 200; 200
+          Color Transformer: RGB8
+          Decay Time: 60
+          Enabled: true
+          Invert Rainbow: false
+          Max Color: 255; 255; 255
+          Min Color: 0; 0; 0
+          Name: ExploredCloud
+          Position Transformer: XYZ
+          Queue Size: 10
+          Selectable: true
+          Size (Pixels): 2
+          Size (m): 0.07999999821186066
+          Style: Points
+          Topic: /quad2_pcl_render_node/cloud_accum
+          Unreliable: false
+          Use Fixed Frame: true
+          Use rainbow: true
+          Value: true
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad_2/planning/history_traj
+          Name: HistoryTraj
+          Namespaces:
+            history_traj: true
+          Queue Size: 100
+          Value: true
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad_2/planning/body_axes
+          Name: BodyAxes
+          Namespaces:
+            body_axes: true
+          Queue Size: 100
+          Value: true
+        - Class: rviz/Marker
+          Enabled: false
+          Marker Topic: /quad_2/planning/travel_traj
+          Name: TravelTraj
+          Namespaces:
+            {}
+          Queue Size: 100
+          Value: false
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /quad_2/planning/position_cmd_vis
+          Name: PositionCmd
+          Namespaces:
+            current_pose: true
+          Queue Size: 100
+          Value: true
+        - Alpha: 1
+          Arrow Length: 0.30000001192092896
+          Axes Length: 0.30000001192092896
+          Axes Radius: 0.009999999776482582
+          Class: rviz/PoseArray
+          Color: 255; 25; 0
+          Enabled: false
+          Head Length: 0.07000000029802322
+          Head Radius: 0.029999999329447746
+          Name: Waypoints
+          Queue Size: 10
+          Shaft Length: 0.23000000417232513
+          Shaft Radius: 0.009999999776482582
+          Shape: Arrow (Flat)
+          Topic: /quad_2/waypoint_generator/waypoints_vis
+          Unreliable: false
+          Value: false
+      Enabled: true
+      Name: Quad2
+  Enabled: true
+  Global Options:
+    Background Color: 85; 87; 83
+    Default Light: true
+    Fixed Frame: world
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz/Interact
+      Hide Inactive Objects: true
+    - Class: rviz/MoveCamera
+    - Class: rviz/Select
+    - Class: rviz/FocusCamera
+    - Class: rviz/Measure
+    - Class: rviz/PublishPoint
+      Single click: true
+      Topic: /clicked_point
+    - Class: rviz/SetGoal
+      Topic: /quad_0/move_base_simple/goal
+    - Class: rviz/SetGoal
+      Topic: /quad_1/move_base_simple/goal
+    - Class: rviz/SetGoal
+      Topic: /quad_2/move_base_simple/goal
+  Value: true
+  Views:
+    Current:
+      Class: rviz/Orbit
+      Distance: 44.8586311340332
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Field of View: 0.7853981852531433
+      Focal Point:
+        X: 4.607738971710205
+        Y: -9.606436729431152
+        Z: 4.403841018676758
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05000000074505806
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.009999999776482582
+      Pitch: 0.8197963833808899
+      Target Frame: world
+      Yaw: 5.130000114440918
+    Saved: ~
+Window Geometry:
+  Displays:
+    collapsed: true
+  Height: 2032
+  Hide Left Dock: true
+  Hide Right Dock: false
+  QMainWindow State: 000000ff00000000fd00000001000000000000064c0000075efc0200000005fb000000100044006900730070006c0061007900730000000069000003ac0000017800fffffffb0000001200530065006c0065006300740069006f006e00000002ec0000011e000000ab00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073000000037700000144000000ab00fffffffb0000000a005600690065007700730000000421000002c60000012300fffffffb0000000800540069006d006500000006f3000000d40000005700ffffff00000e740000075e00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Selection:
+    collapsed: false
+  Time:
+    collapsed: true
+  Tool Properties:
+    collapsed: false
+  Views:
+    collapsed: true
+  Width: 3700
+  X: 140
+  Y: 54

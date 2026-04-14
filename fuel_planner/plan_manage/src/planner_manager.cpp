@@ -10,6 +10,18 @@
 #include <visualization_msgs/Marker.h>
 
 namespace fast_planner {
+namespace {
+double normalizeAngle(double angle) {
+  while (angle <= -M_PI) angle += 2.0 * M_PI;
+  while (angle > M_PI) angle -= 2.0 * M_PI;
+  return angle;
+}
+
+double shortestAngularDistance(double from, double to) {
+  return normalizeAngle(to - from);
+}
+}  // namespace
+
 // SECTION interfaces for setup and query
 
 FastPlannerManager::FastPlannerManager() {
@@ -723,7 +735,9 @@ void FastPlannerManager::planYaw(const Eigen::Vector3d& start_yaw) {
       waypt(1) = waypt(2) = 0.0;
       calcNextYaw(last_yaw, waypt(0));
     } else {
-      waypt = waypts.back();
+      // When the forward-looking displacement is nearly zero at the first sample,
+      // fall back to the current yaw instead of dereferencing an empty waypoint list.
+      waypt = waypts.empty() ? Eigen::Vector3d(last_yaw, 0.0, 0.0) : waypts.back();
     }
     last_yaw = waypt(0);
     waypts.push_back(waypt);
@@ -810,8 +824,11 @@ void FastPlannerManager::planYawExplore(const Eigen::Vector3d& start_yaw, const 
         waypt(0) = atan2(pd(1), pd(0));
         waypt(1) = waypt(2) = 0.0;
         calcNextYaw(last_yaw, waypt(0));
-      } else
-        waypt = waypts.back();
+      } else {
+        // Ground motion can create near-stationary path samples; keep the previous yaw
+        // rather than accessing an empty waypoint buffer.
+        waypt = waypts.empty() ? Eigen::Vector3d(last_yaw, 0.0, 0.0) : waypts.back();
+      }
 
       last_yaw = waypt(0);
       waypts.push_back(waypt);
@@ -820,7 +837,7 @@ void FastPlannerManager::planYawExplore(const Eigen::Vector3d& start_yaw, const 
   }
   // Final state
   Eigen::Vector3d end_yaw3d(end_yaw, 0, 0);
-  calcNextYaw(last_yaw, end_yaw3d(0));
+  end_yaw3d(0) = last_yaw + shortestAngularDistance(last_yaw, end_yaw3d(0));
   yaw.block<3, 1>(seg_num, 0) = states2pts * end_yaw3d;
 
   // Debug rapid change of yaw

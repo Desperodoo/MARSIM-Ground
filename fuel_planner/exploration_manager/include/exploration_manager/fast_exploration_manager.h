@@ -44,6 +44,8 @@ public:
 private:
   shared_ptr<EDTEnvironment> edt_environment_;
   shared_ptr<SDFMap> sdf_map_;
+  bool ground_motion_enabled_ = false;
+  double fixed_ground_z_ = 0.3;
 
   // Find optimal tour for coarse viewpoints of all frontiers
   void findGlobalTour(const Vector3d& cur_pos, const Vector3d& cur_vel, const Vector3d cur_yaw,
@@ -55,6 +57,9 @@ private:
                        vector<Vector3d>& refined_pts, vector<double>& refined_yaws);
 
   void shortenPath(vector<Vector3d>& path);
+  Vector3d clampToGround(const Vector3d& pt) const;
+  void clampPathToGround(vector<Vector3d>& path) const;
+  void clampNestedPathToGround(vector<vector<Vector3d>>& paths) const;
 
 public:
   typedef shared_ptr<FastExplorationManager> Ptr;

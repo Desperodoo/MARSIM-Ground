@@ -1,0 +1,42 @@
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ARG NO_PROXY
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV ALL_PROXY=${ALL_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+SHELL ["/bin/bash", "-lc"]
+
+RUN printf '%s\n' \
+    'deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu/ focal main restricted universe multiverse' \
+    'deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu/ focal-updates main restricted universe multiverse' \
+    'deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu/ focal-backports main restricted universe multiverse' \
+    'deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu/ focal-security main restricted universe multiverse' \
+    > /etc/apt/sources.list && \
+    apt-get update && apt-get install -y \
+      ca-certificates \
+      curl \
+      gnupg \
+      lsb-release \
+      software-properties-common \
+      wget && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | apt-key add - && \
+    echo "deb http://packages.ros.org/ros/ubuntu focal main" > /etc/apt/sources.list.d/ros1.list && \
+    apt-get update && apt-get install -y \
+      ros-noetic-desktop-full \
+      python3-rosdep \
+      python3-rosinstall \
+      python3-rosinstall-generator \
+      python3-wstool \
+      build-essential && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN rosdep init || true
+
+CMD ["/bin/bash"]

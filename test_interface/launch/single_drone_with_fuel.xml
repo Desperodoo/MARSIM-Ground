@@ -11,6 +11,10 @@
     <arg name="downsample_resolution_"/>
     <arg name="use_gpu"/>
     <arg name="use_uav_extra_model_"/>
+    <arg name="robot_color_r" default="0.68"/>
+    <arg name="robot_color_g" default="0.61"/>
+    <arg name="robot_color_b" default="0.54"/>
+    <arg name="robot_scale_" default="1.8"/>
 
        <!-- <node pkg="bubble_planner" type="planning" name="quad_$(arg drone_id)_planner" output="screen">
            <rosparam command="load" file="$(find bubble_planner)/config/advanced_params.yaml"/>
@@ -49,7 +53,7 @@
         <remap from="~cmd_RPM" to="/quad_$(arg drone_id)/cmdRPM"/>
         <remap from="~cmd_pose" to="/quad_$(arg drone_id)/pos_cmd"/>
         <!--/quad_$(arg drone_id)/pos_cmd  -->
-        <remap from="~position_cmd" to="/planning/pos_cmd"/>
+        <remap from="~position_cmd" to="/quad_$(arg drone_id)/planning/pos_cmd"/>
         <param name="controller_rate" value="200"/>
         <param name="quadrotor_name" value="quad_$(arg drone_id)"/>
         <param name="init_state_x" value="$(arg init_x_)"/>
@@ -68,14 +72,15 @@
         <param name="init_y" value="$(arg init_y_)"/>
         <param name="init_z" value="$(arg init_z_)"/>
         <param name="color/a" value="1.0"/>
-        <param name="color/r" value="0.0"/>
-        <param name="color/g" value="1.0"/>
-        <param name="color/b" value="1.0"/>
+        <param name="color/r" value="$(arg robot_color_r)"/>
+        <param name="color/g" value="$(arg robot_color_g)"/>
+        <param name="color/b" value="$(arg robot_color_b)"/>
         <param name="covariance_scale" value="100.0"/>
-        <param name="robot_scale" value="1.0"/>
+        <param name="robot_scale" value="$(arg robot_scale_)"/>
+        <param name="robot_model" value="unitree_a1"/>
         <param name="quadrotor_name" value="quad$(arg drone_id)"/>
         <param name="drone_id" value="$(arg drone_id)"/>
-        <param name="mesh_resource" value="package://odom_visualization/meshes/yunque.dae"/>
+        <param name="mesh_resource" value="package://odom_visualization/meshes/unitree_a1/trunk.dae"/>
     </node>
 
     <group if="$(arg use_gpu)">

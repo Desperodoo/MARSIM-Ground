@@ -3,7 +3,7 @@
 #include <plan_env/sdf_map.h>
 #include <thread>
 
-#include <nlopt.hpp>
+#include <bspline_opt/nlopt.hpp>
 // using namespace std;
 
 namespace fast_planner {
