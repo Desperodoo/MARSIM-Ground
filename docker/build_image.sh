@@ -8,8 +8,9 @@ HTTP_PROXY="${HTTP_PROXY:-http://172.18.196.129:7890}"
 HTTPS_PROXY="${HTTPS_PROXY:-${HTTP_PROXY}}"
 ALL_PROXY="${ALL_PROXY:-${HTTP_PROXY}}"
 NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,::1}"
+source "${SCRIPT_DIR}/common.sh"
 
-docker build \
+$(docker_cmd) build \
   --build-arg BASE_IMAGE="${BASE_IMAGE}" \
   --build-arg HTTP_PROXY="${HTTP_PROXY}" \
   --build-arg HTTPS_PROXY="${HTTPS_PROXY}" \

@@ -29,6 +29,8 @@ export NO_PROXY=localhost,127.0.0.1,::1
 ./docker/build_all.sh
 ```
 
+If your user is not in the `docker` group, the scripts will automatically fall back to `sudo docker`.
+
 If you want RViz from inside Docker on a local X11 desktop:
 
 ```bash

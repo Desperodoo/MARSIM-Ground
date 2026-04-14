@@ -10,6 +10,18 @@ HTTPS_PROXY="${HTTPS_PROXY:-${HTTP_PROXY}}"
 ALL_PROXY="${ALL_PROXY:-${HTTP_PROXY}}"
 NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,::1}"
 
+docker_cmd() {
+  if docker info >/dev/null 2>&1; then
+    echo docker
+    return
+  fi
+  if sudo -n docker info >/dev/null 2>&1; then
+    echo "sudo -n docker"
+    return
+  fi
+  echo "sudo docker"
+}
+
 prepare_workspace() {
   mkdir -p "${WS_ROOT}/src"
   if [ ! -e "${WS_ROOT}/src/MARSIM_fuel" ]; then
@@ -39,6 +51,8 @@ x11_args() {
 
 run_in_container() {
   prepare_workspace
+  local docker_bin
+  docker_bin="$(docker_cmd)"
   local -a args
   while IFS= read -r line; do
     [ -n "${line}" ] && args+=("${line}")
@@ -47,7 +61,7 @@ run_in_container() {
     [ -n "${line}" ] && args+=("${line}")
   done < <(x11_args)
 
-  docker run --rm -it \
+  ${docker_bin} run --rm -it \
     --net=host \
     "${args[@]}" \
     -v "${WS_ROOT}:/root/marsim_ws" \
