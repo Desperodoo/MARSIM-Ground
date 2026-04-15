@@ -13,6 +13,11 @@ This branch includes a ground-robot adaptation of the MARSIM + FUEL stack:
 - ground-constrained multi-robot exploration launch
 - fixed-trajectory forest coverage showcase launch
 - rolling accumulated point cloud visualization for each robot
+- simple visual gait animation for the quadrupeds in the fixed-trajectory showcase
+
+## Common Commands
+
+### 1. Clone and build
 
 Recommended reproduction path on a fresh Ubuntu 20.04 machine:
 
@@ -29,7 +34,15 @@ export NO_PROXY=localhost,127.0.0.1,::1
 ./docker/build_all.sh
 ```
 
+If you only need to rebuild the Docker catkin workspace after code changes:
+
+```bash
+./docker/build_workspace.sh
+```
+
 If your user is not in the `docker` group, the scripts will automatically fall back to `sudo docker`.
+
+### 2. X11 / RViz preparation
 
 If you want RViz from inside Docker on a local X11 desktop:
 
@@ -38,6 +51,8 @@ xhost +local:root
 export DISPLAY=${DISPLAY:-:0}
 export XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority}
 ```
+
+### 3. Run examples
 
 Run the fixed-trajectory forest coverage showcase:
 
@@ -57,9 +72,44 @@ Useful toggles:
 ENABLE_RVIZ=false ./docker/run_showcase.sh
 USE_GPU=true ./docker/run_showcase.sh
 AUTOSTART=false ./docker/run_exploration_multi.sh
+MAP_NAME=$(pwd)/map_generator/resource/small_forest01cutoff.pcd ./docker/run_showcase.sh
 ```
 
-The Docker workflow uses a local catkin workspace at `.docker_ws/` and mounts this repository into the container as `/root/marsim_ws/src/MARSIM_fuel`.
+The fixed-trajectory showcase now starts each quadruped at the beginning of its assigned route, so the robot no longer visually jumps from a separate spawn pose to the path start.
+
+### 4. Record RViz
+
+Record only the visible RViz region from the host X11 desktop:
+
+```bash
+DURATION_SECONDS=180 ./docker/record_rviz_region.sh
+```
+
+This helper locates the `multi_ground.rviz - RViz` window and records that screen region to `recordings/`. It is a host-side region capture, not true window capture, so if another window covers RViz that overlap will also appear in the video.
+
+Record the RViz X11 window directly so overlapping windows such as VS Code do not appear in the output:
+
+```bash
+DURATION_SECONDS=180 ./docker/record_rviz_window.sh
+```
+
+If you want one command that launches the fixed-trajectory showcase and immediately starts an RViz-only recording:
+
+```bash
+DURATION_SECONDS=180 ./docker/run_showcase_record_window.sh
+```
+
+If the auto-record script says another showcase instance is already running, clear the old one first:
+
+```bash
+pkill -f trajectory_showcase_ground.launch || true
+```
+
+### 5. Notes
+
+- `./docker/run_showcase.sh` and `./docker/run_exploration_multi.sh` auto-detect whether Docker GPU passthrough is available. If an NVIDIA runtime is available, GPU rendering is enabled automatically; otherwise they fall back to the non-GPU path.
+- The fixed-trajectory ground showcase includes a lightweight visual gait effect for the Unitree-style robots so they no longer appear to slide rigidly through the scene.
+- The Docker workflow uses a local catkin workspace at `.docker_ws/` and mounts this repository into the container as `/root/marsim_ws/src/MARSIM_fuel`.
 
 ## Update
 

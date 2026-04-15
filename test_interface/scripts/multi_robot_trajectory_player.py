@@ -182,6 +182,21 @@ def downsample_path(path_points, min_spacing):
     return result
 
 
+def prepend_start_point(path_points, start_xy, min_spacing):
+    if not path_points:
+        return [(float(start_xy[0]), float(start_xy[1]))]
+
+    anchored_path = list(path_points)
+    start_xy = (float(start_xy[0]), float(start_xy[1]))
+    dx = anchored_path[0][0] - start_xy[0]
+    dy = anchored_path[0][1] - start_xy[1]
+    if dx * dx + dy * dy <= min_spacing * min_spacing:
+        anchored_path[0] = start_xy
+        return anchored_path
+
+    return [start_xy] + anchored_path
+
+
 def chaikin_open(points, iterations):
     result = list(points)
     for _ in range(iterations):
@@ -276,6 +291,7 @@ def generate_band_path(reachable_mask, x_coords, y_coords, row_begin, row_end, l
 def fallback_paths():
     return [
         [
+            (0.0, 0.0),
             (1.8, -0.8),
             (5.2, -0.6),
             (9.8, -0.7),
@@ -288,6 +304,7 @@ def fallback_paths():
             (0.8, -1.5),
         ],
         [
+            (-2.0, -1.5),
             (0.8, -3.9),
             (4.4, -5.3),
             (8.9, -5.7),
@@ -300,6 +317,7 @@ def fallback_paths():
             (1.3, -3.4),
         ],
         [
+            (-2.0, 1.5),
             (0.5, 2.2),
             (3.8, 3.2),
             (7.8, 3.8),
@@ -378,6 +396,7 @@ def generate_coverage_paths(map_name, starts, grid_resolution, obstacle_z_min, o
         spaced = downsample_path(ordered, lane_spacing * 0.45)
         smoothed = chaikin_open(spaced, 2)
         final_path = downsample_path(smoothed, lane_spacing * 0.28)
+        final_path = prepend_start_point(final_path, start_xy, lane_spacing * 0.35)
         if len(final_path) < 4:
             raise RuntimeError(f"smoothed coverage path for robot {robot_index} is too short")
         paths.append(final_path)
