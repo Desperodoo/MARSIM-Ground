@@ -23,5 +23,7 @@ MAP_NAME="${MAP_NAME:-${REPO_ROOT}/map_generator/resource/small_forest01cutoff.p
 MAP_NAME="$(containerize_repo_path "${MAP_NAME}")"
 
 run_in_container "source /opt/ros/noetic/setup.bash && source devel/setup.bash && \
+  SHOWCASE_INIT_ARGS=\$(python3 src/MARSIM_fuel/test_interface/scripts/multi_robot_trajectory_player.py \
+  --print-init-states --map '${MAP_NAME}' --fixed-z 0.30 | tr '\n' ' ') && \
   roslaunch exploration_manager trajectory_showcase_ground.launch \
-  enable_rviz:=${ENABLE_RVIZ} use_gpu:=${USE_GPU} map_name:=${MAP_NAME}"
+  enable_rviz:=${ENABLE_RVIZ} use_gpu:=${USE_GPU} map_name:=${MAP_NAME} \${SHOWCASE_INIT_ARGS}"

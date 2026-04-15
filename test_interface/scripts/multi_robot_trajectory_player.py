@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
+import argparse
 import math
+import sys
 from collections import deque
 
 import numpy as np
@@ -182,21 +184,6 @@ def downsample_path(path_points, min_spacing):
     return result
 
 
-def prepend_start_point(path_points, start_xy, min_spacing):
-    if not path_points:
-        return [(float(start_xy[0]), float(start_xy[1]))]
-
-    anchored_path = list(path_points)
-    start_xy = (float(start_xy[0]), float(start_xy[1]))
-    dx = anchored_path[0][0] - start_xy[0]
-    dy = anchored_path[0][1] - start_xy[1]
-    if dx * dx + dy * dy <= min_spacing * min_spacing:
-        anchored_path[0] = start_xy
-        return anchored_path
-
-    return [start_xy] + anchored_path
-
-
 def chaikin_open(points, iterations):
     result = list(points)
     for _ in range(iterations):
@@ -291,7 +278,6 @@ def generate_band_path(reachable_mask, x_coords, y_coords, row_begin, row_end, l
 def fallback_paths():
     return [
         [
-            (0.0, 0.0),
             (1.8, -0.8),
             (5.2, -0.6),
             (9.8, -0.7),
@@ -304,7 +290,6 @@ def fallback_paths():
             (0.8, -1.5),
         ],
         [
-            (-2.0, -1.5),
             (0.8, -3.9),
             (4.4, -5.3),
             (8.9, -5.7),
@@ -317,7 +302,6 @@ def fallback_paths():
             (1.3, -3.4),
         ],
         [
-            (-2.0, 1.5),
             (0.5, 2.2),
             (3.8, 3.2),
             (7.8, 3.8),
@@ -330,6 +314,26 @@ def fallback_paths():
             (1.7, 1.6),
         ],
     ]
+
+
+def default_path_seed_starts():
+    return [
+        (0.0, 0.0),
+        (-2.0, -1.5),
+        (-2.0, 1.5),
+    ]
+
+
+def compute_showcase_init_states(path_sets, fixed_z):
+    init_states = []
+    for path in path_sets:
+        if len(path) < 2:
+            raise RuntimeError("path is too short to compute showcase init state")
+        p0 = path[0]
+        p1 = path[1]
+        yaw = math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+        init_states.append((p0[0], p0[1], fixed_z, yaw))
+    return init_states
 
 
 def generate_coverage_paths(map_name, starts, grid_resolution, obstacle_z_min, obstacle_z_max,
@@ -396,7 +400,6 @@ def generate_coverage_paths(map_name, starts, grid_resolution, obstacle_z_min, o
         spaced = downsample_path(ordered, lane_spacing * 0.45)
         smoothed = chaikin_open(spaced, 2)
         final_path = downsample_path(smoothed, lane_spacing * 0.28)
-        final_path = prepend_start_point(final_path, start_xy, lane_spacing * 0.35)
         if len(final_path) < 4:
             raise RuntimeError(f"smoothed coverage path for robot {robot_index} is too short")
         paths.append(final_path)
@@ -416,13 +419,14 @@ def generate_coverage_paths(map_name, starts, grid_resolution, obstacle_z_min, o
 
 
 class RobotProfile:
-    def __init__(self, name, init_xyz, path_points, speed_mps, color):
+    def __init__(self, name, init_xyz, init_yaw, path_points, speed_mps, color):
         self.name = name
         self.init_x, self.init_y, self.init_z = init_xyz
+        self.init_yaw = init_yaw
         self.path_points = list(path_points)
         self.speed_mps = max(0.2, speed_mps)
         self.color = color
-        self.last_yaw = 0.0
+        self.last_yaw = init_yaw
         self.history_points = deque(maxlen=5000)
         self.latest_odom = None
 
@@ -520,6 +524,9 @@ class RobotProfile:
 
     def reference(self, t, fixed_z, warmup_sec):
         if t < warmup_sec:
+            if warmup_sec <= 1e-6:
+                return self.route_reference(t, fixed_z)
+
             tau = clamp(t / warmup_sec, 0.0, 1.0)
             s = 10.0 * tau**3 - 15.0 * tau**4 + 6.0 * tau**5
             ds_dt = (30.0 * tau**2 - 60.0 * tau**3 + 30.0 * tau**4) / warmup_sec
@@ -538,8 +545,11 @@ class RobotProfile:
             ax = d2s_dt2 * dx
             ay = d2s_dt2 * dy
 
+            position_error = math.hypot(dx, dy)
             speed = math.hypot(vx, vy)
-            if speed > 0.03:
+            if position_error < 0.02:
+                self.last_yaw = self.init_yaw
+            elif speed > 0.03:
                 self.last_yaw = math.atan2(vy, vx)
 
             return {
@@ -696,18 +706,14 @@ class MultiRobotTrajectoryPlayer:
         self.bounds_quantile_low = rospy.get_param("~bounds_quantile_low", 0.03)
         self.bounds_quantile_high = rospy.get_param("~bounds_quantile_high", 0.97)
 
-        starts = [
-            (0.0, 0.0),
-            (-2.0, -1.5),
-            (-2.0, 1.5),
-        ]
+        path_seed_starts = default_path_seed_starts()
 
         try:
             if not self.map_name:
                 raise RuntimeError("map_name parameter is empty")
             path_sets = generate_coverage_paths(
                 self.map_name,
-                starts,
+                path_seed_starts,
                 self.grid_resolution,
                 self.obstacle_z_min,
                 self.obstacle_z_max,
@@ -720,10 +726,32 @@ class MultiRobotTrajectoryPlayer:
             rospy.logwarn("Failed to generate map-driven coverage paths: %s", exc)
             path_sets = fallback_paths()
 
+        default_init_states = compute_showcase_init_states(path_sets, self.fixed_z)
+        showcase_init_states = [
+            (
+                rospy.get_param("~quad0_init_x", default_init_states[0][0]),
+                rospy.get_param("~quad0_init_y", default_init_states[0][1]),
+                self.fixed_z,
+                rospy.get_param("~quad0_init_yaw", default_init_states[0][3]),
+            ),
+            (
+                rospy.get_param("~quad1_init_x", default_init_states[1][0]),
+                rospy.get_param("~quad1_init_y", default_init_states[1][1]),
+                self.fixed_z,
+                rospy.get_param("~quad1_init_yaw", default_init_states[1][3]),
+            ),
+            (
+                rospy.get_param("~quad2_init_x", default_init_states[2][0]),
+                rospy.get_param("~quad2_init_y", default_init_states[2][1]),
+                self.fixed_z,
+                rospy.get_param("~quad2_init_yaw", default_init_states[2][3]),
+            ),
+        ]
+
         self.robots = [
-            RobotProfile("quad_0", (0.0, 0.0, self.fixed_z), path_sets[0], self.path_speed, (0.82, 0.60, 0.53, 0.95)),
-            RobotProfile("quad_1", (-2.0, -1.5, self.fixed_z), path_sets[1], self.path_speed, (0.62, 0.66, 0.63, 0.95)),
-            RobotProfile("quad_2", (-2.0, 1.5, self.fixed_z), path_sets[2], self.path_speed, (0.65, 0.63, 0.56, 0.95)),
+            RobotProfile("quad_0", showcase_init_states[0][:3], showcase_init_states[0][3], path_sets[0], self.path_speed, (0.82, 0.60, 0.53, 0.95)),
+            RobotProfile("quad_1", showcase_init_states[1][:3], showcase_init_states[1][3], path_sets[1], self.path_speed, (0.62, 0.66, 0.63, 0.95)),
+            RobotProfile("quad_2", showcase_init_states[2][:3], showcase_init_states[2][3], path_sets[2], self.path_speed, (0.65, 0.63, 0.56, 0.95)),
         ]
 
         self.start_time = rospy.Time.now()
@@ -747,5 +775,47 @@ class MultiRobotTrajectoryPlayer:
             rate.sleep()
 
 
+def build_arg_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--print-init-states", action="store_true")
+    parser.add_argument("--map", dest="map_name", default="")
+    parser.add_argument("--fixed-z", dest="fixed_z", type=float, default=0.30)
+    parser.add_argument("--grid-resolution", dest="grid_resolution", type=float, default=0.45)
+    parser.add_argument("--obstacle-z-min", dest="obstacle_z_min", type=float, default=0.15)
+    parser.add_argument("--obstacle-z-max", dest="obstacle_z_max", type=float, default=1.8)
+    parser.add_argument("--obstacle-inflation", dest="obstacle_inflation", type=float, default=0.45)
+    parser.add_argument("--lane-spacing", dest="lane_spacing", type=float, default=1.1)
+    parser.add_argument("--bounds-quantile-low", dest="bounds_quantile_low", type=float, default=0.03)
+    parser.add_argument("--bounds-quantile-high", dest="bounds_quantile_high", type=float, default=0.97)
+    return parser
+
+
+def print_init_states_cli(args):
+    if not args.map_name:
+        raise RuntimeError("--map is required with --print-init-states")
+
+    path_sets = generate_coverage_paths(
+        args.map_name,
+        default_path_seed_starts(),
+        args.grid_resolution,
+        args.obstacle_z_min,
+        args.obstacle_z_max,
+        args.obstacle_inflation,
+        args.lane_spacing,
+        args.bounds_quantile_low,
+        args.bounds_quantile_high,
+    )
+    init_states = compute_showcase_init_states(path_sets, args.fixed_z)
+
+    for idx, (x, y, _, yaw) in enumerate(init_states):
+        print(f"quad{idx}_init_x:={x}")
+        print(f"quad{idx}_init_y:={y}")
+        print(f"quad{idx}_init_yaw:={yaw}")
+
+
 if __name__ == "__main__":
+    cli_args, _ = build_arg_parser().parse_known_args()
+    if cli_args.print_init_states:
+        print_init_states_cli(cli_args)
+        sys.exit(0)
     MultiRobotTrajectoryPlayer().run()

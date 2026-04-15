@@ -5,6 +5,15 @@
   <arg name="enable_rviz" default="true"/>
   <arg name="rviz_config" default="$(find test_interface)/config/multi_ground.rviz"/>
   <arg name="drone_num" default="3"/>
+  <arg name="quad0_init_x" default="47.58727867126464"/>
+  <arg name="quad0_init_y" default="-9.577864837646485"/>
+  <arg name="quad0_init_yaw" default="3.141592653589793"/>
+  <arg name="quad1_init_x" default="47.13727867126465"/>
+  <arg name="quad1_init_y" default="-1.4778648376464858"/>
+  <arg name="quad1_init_yaw" default="-2.1587989303424644"/>
+  <arg name="quad2_init_x" default="-23.062721328735353"/>
+  <arg name="quad2_init_y" default="4.372135162353516"/>
+  <arg name="quad2_init_yaw" default="0.0"/>
   <arg name="cloud_accum_max_frames" default="36"/>
   <arg name="cloud_accum_max_age_sec" default="12.0"/>
   <arg name="cloud_accum_voxel_leaf_size" default="0.20"/>
@@ -25,10 +34,10 @@
     <arg name="drone_id" value="0"/>
     <arg name="uav_num_" value="$(arg drone_num)"/>
     <arg name="lidar_type" value="avia"/>
-    <arg name="init_x_" value="0.0"/>
-    <arg name="init_y_" value="0.0"/>
+    <arg name="init_x_" value="$(arg quad0_init_x)"/>
+    <arg name="init_y_" value="$(arg quad0_init_y)"/>
     <arg name="init_z_" value="0.30"/>
-    <arg name="init_yaw" value="0.0"/>
+    <arg name="init_yaw" value="$(arg quad0_init_yaw)"/>
     <arg name="map_name_" value="$(arg map_name)"/>
     <arg name="downsample_resolution_" value="$(arg downsample_resolution)"/>
     <arg name="odom_topic" value="/lidar_slam/odom"/>
@@ -44,10 +53,10 @@
     <arg name="drone_id" value="1"/>
     <arg name="uav_num_" value="$(arg drone_num)"/>
     <arg name="lidar_type" value="avia"/>
-    <arg name="init_x_" value="-2.0"/>
-    <arg name="init_y_" value="-1.5"/>
+    <arg name="init_x_" value="$(arg quad1_init_x)"/>
+    <arg name="init_y_" value="$(arg quad1_init_y)"/>
     <arg name="init_z_" value="0.30"/>
-    <arg name="init_yaw" value="0.0"/>
+    <arg name="init_yaw" value="$(arg quad1_init_yaw)"/>
     <arg name="map_name_" value="$(arg map_name)"/>
     <arg name="downsample_resolution_" value="$(arg downsample_resolution)"/>
     <arg name="odom_topic" value="/lidar_slam/odom"/>
@@ -63,10 +72,10 @@
     <arg name="drone_id" value="2"/>
     <arg name="uav_num_" value="$(arg drone_num)"/>
     <arg name="lidar_type" value="avia"/>
-    <arg name="init_x_" value="-2.0"/>
-    <arg name="init_y_" value="1.5"/>
+    <arg name="init_x_" value="$(arg quad2_init_x)"/>
+    <arg name="init_y_" value="$(arg quad2_init_y)"/>
     <arg name="init_z_" value="0.30"/>
-    <arg name="init_yaw" value="0.0"/>
+    <arg name="init_yaw" value="$(arg quad2_init_yaw)"/>
     <arg name="map_name_" value="$(arg map_name)"/>
     <arg name="downsample_resolution_" value="$(arg downsample_resolution)"/>
     <arg name="odom_topic" value="/lidar_slam/odom"/>
@@ -112,6 +121,15 @@
         name="multi_robot_trajectory_player" output="screen">
     <param name="map_name" value="$(arg map_name)"/>
     <param name="fixed_z" value="0.30"/>
+    <param name="quad0_init_x" value="$(arg quad0_init_x)"/>
+    <param name="quad0_init_y" value="$(arg quad0_init_y)"/>
+    <param name="quad0_init_yaw" value="$(arg quad0_init_yaw)"/>
+    <param name="quad1_init_x" value="$(arg quad1_init_x)"/>
+    <param name="quad1_init_y" value="$(arg quad1_init_y)"/>
+    <param name="quad1_init_yaw" value="$(arg quad1_init_yaw)"/>
+    <param name="quad2_init_x" value="$(arg quad2_init_x)"/>
+    <param name="quad2_init_y" value="$(arg quad2_init_y)"/>
+    <param name="quad2_init_yaw" value="$(arg quad2_init_yaw)"/>
     <param name="warmup_sec" value="6.0"/>
     <param name="publish_rate" value="40.0"/>
     <param name="path_speed" value="0.55"/>
